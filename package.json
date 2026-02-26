@@ -1,0 +1,73 @@
+{
+  "name": "capy-note",
+  "version": "1.2.4",
+  "description": "Capy-note - Effiziente Bewertung gescannter Schülerarbeiten",
+  "main": "electron/main.cjs",
+  "author": "Florian Nowak",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "vite build && electron-builder",
+    "electron:build:win": "vite build && electron-builder --win",
+    "electron:build:mac": "vite build && electron-builder --mac",
+    "electron:build:linux": "vite build && electron-builder --linux"
+  },
+  "dependencies": {
+    "@fontsource/gloria-hallelujah": "^5.2.8",
+    "@fontsource/indie-flower": "^5.2.7",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "vite": "^6.0.1",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.capynote.app",
+    "productName": "Capy-note",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "${productName}-${version}-Windows.${ext}",
+      "icon": "public/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "artifactName": "${productName}-${version}-macOS.${ext}",
+      "icon": "public/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "artifactName": "${productName}-${version}-Linux.${ext}",
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "icon": "public/icon.png"
+  }
+}
