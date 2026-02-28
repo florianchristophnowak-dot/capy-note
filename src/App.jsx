@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { FileUp, ChevronLeft, ChevronRight, Plus, Sun, Moon, Trash2, ZoomIn, ZoomOut, X, Check, Crop, Save, Eye, AlertTriangle, PenTool, Type, Undo2, Table, Edit3, SkipForward, Filter, Eraser, Circle, Download, FileText, Users, Award, BarChart3, CheckCircle2, Clock, Archive, Calendar, PartyPopper, Loader2, Move, AlignCenterVertical, Settings } from 'lucide-react';
 
 // ==================== App Version ====================
-const APP_VERSION = '1.2.4';
-const APP_AUTHOR = 'Florian Nowak';
+const APP_VERSION = '1.2.8';
+const APP_AUTHOR = 'Florian Christoph Nowak';
 
 // ==================== Capybara Logo Component ====================
 function CapyLogo({ size = 48, className = '' }) {
@@ -657,7 +657,8 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
               const x = (task.region.x + a.x * task.region.width / 100) / 100 * canvas.width;
               const y = (task.region.y + a.y * task.region.height / 100) / 100 * canvas.height;
               ctx.save();
-              const fs = (a.fontSize || 16) * 2;
+              const regionH = (task.region.height / 100) * canvas.height;
+              const fs = (a.fontSizeRel != null) ? (a.fontSizeRel / 100) * regionH : ((a.fontSize || 16) * scale);
               const yBase = (a.anchor === 'baseline') ? y : (y + fs);
               ctx.globalAlpha = (a.opacity ?? 1);
               ctx.fillStyle = c;
@@ -724,7 +725,8 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
             const x = (task.region.x + a.x * task.region.width / 100) / 100 * canvas.width;
             const y = (task.region.y + a.y * task.region.height / 100) / 100 * canvas.height;
             ctx.save();
-            const fs = (a.fontSize || 16) * 2;
+            const regionH = (task.region.height / 100) * canvas.height;
+            const fs = (a.fontSizeRel != null) ? (a.fontSizeRel / 100) * regionH : ((a.fontSize || 16) * scale);
             const yBase = (a.anchor === 'baseline') ? y : (y + fs);
             ctx.globalAlpha = (a.opacity ?? 1);
             ctx.fillStyle = a.color;
@@ -810,7 +812,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
         ctx.strokeRect(x, y, w, h);
 
         const label = `${formatBE(total)} / ${formatBE(maxPts)} BE`;
-        ctx.fillStyle = '#2563eb';
+        ctx.fillStyle = '#dc2626';
         const fs = fitTextSize(ctx, label, w, h, 'Indie Flower', '400');
         ctx.font = `400 ${fs}px "Indie Flower", cursive`;
         ctx.textAlign = 'center';
@@ -831,7 +833,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
         ctx.lineWidth = 2;
         ctx.strokeRect(x, y, w, h);
 
-        ctx.fillStyle = '#b45309';
+        ctx.fillStyle = '#dc2626';
         const fs = fitTextSize(ctx, grade, w, h, 'Gloria Hallelujah', '400');
         ctx.font = `400 ${fs}px "Gloria Hallelujah", cursive`;
         ctx.textAlign = 'center';
@@ -849,11 +851,11 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
         ctx.strokeRect(bx, by, bw, bh);
 
         const label = `${formatBE(total)} / ${formatBE(maxPts)} BE`;
-        ctx.fillStyle = '#2563eb';
+        ctx.fillStyle = '#dc2626';
         ctx.font = '400 26px "Indie Flower", cursive';
         ctx.fillText(label, bx + 15, by + 38);
 
-        ctx.fillStyle = '#b45309';
+        ctx.fillStyle = '#dc2626';
         ctx.font = '400 54px "Gloria Hallelujah", cursive';
         ctx.fillText(grade, bx + 15, by + 102);
       }
@@ -909,7 +911,8 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
             const x = (task.region.x + a.x * task.region.width / 100) / 100 * canvas.width;
             const y = (task.region.y + a.y * task.region.height / 100) / 100 * canvas.height;
             ctx.save();
-              const fs = (a.fontSize || 16) * 2;
+              const regionH = (task.region.height / 100) * canvas.height;
+              const fs = (a.fontSizeRel != null) ? (a.fontSizeRel / 100) * regionH : ((a.fontSize || 16) * scale);
               const yBase = (a.anchor === 'baseline') ? y : (y + fs);
               ctx.globalAlpha = (a.opacity ?? 1);
               ctx.fillStyle = c;
@@ -1441,16 +1444,44 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
 
   const [containerPx, setContainerPx] = useState({ w: 0, h: 0 });
 
-  // Keep track of the visible canvas size (needed to convert px font-sizes to % coordinates).
+  // SVG uses a square viewBox (0..100 in x/y) that is stretched to the (usually non-square)
+  // PDF canvas size. That non-uniform scaling distorts glyphs ("too wide" / "too skinny").
+  // Counteract this ONLY for text by applying a horizontal scale factor so glyphs are scaled
+  // uniformly (x uses the same pixel scale as y).
+  const textAspectFix = (() => {
+    const w = containerPx.w || containerRef.current?.getBoundingClientRect().width || 0;
+    const h = containerPx.h || containerRef.current?.getBoundingClientRect().height || 0;
+    if (!w || !h) return 1;
+    const k = h / w; // equals (sy/sx)
+    return Number.isFinite(k) && k > 0 ? k : 1;
+  })();
+
+  // Track the visible container size reliably. The canvas size changes after PDF render,
+  // so a one-time getBoundingClientRect() can be 0 and would blow up SVG font sizes.
   useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
     const update = () => {
-      const r = containerRef.current?.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
       if (!r) return;
       setContainerPx({ w: r.width, h: r.height });
     };
+
     update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
+
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => update());
+      ro.observe(el);
+    } else {
+      window.addEventListener('resize', update);
+    }
+
+    return () => {
+      try { ro?.disconnect(); } catch { /* ignore */ }
+      window.removeEventListener('resize', update);
+    };
   }, [pdfDoc, pageNumber, scale, region, isCropped]);
 
   // Ensure the text input reliably receives focus in Electron.
@@ -1511,34 +1542,92 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
     return { x: ((x - r.left) / r.width) * 100, y: ((y - r.top) / r.height) * 100 };
   }, []);
 
+  // Annotation coordinates are stored "local" to the task region (0–100 inside the crop).
+  // In full-page view, we convert between page-% and region-%.
+  const toLocalCoords = useCallback((c) => {
+    if (!c) return null;
+    if (!isCropped && region) {
+      const lw = region.width || 0;
+      const lh = region.height || 0;
+      if (lw <= 0 || lh <= 0) return null;
+      const lx = ((c.x - region.x) / lw) * 100;
+      const ly = ((c.y - region.y) / lh) * 100;
+      if (lx < 0 || lx > 100 || ly < 0 || ly > 100) return null;
+      return { x: lx, y: ly };
+    }
+    return c;
+  }, [isCropped, region]);
+
+  const toDisplayCoords = useCallback((c) => {
+    if (!c) return null;
+    if (!isCropped && region) {
+      return {
+        x: region.x + (c.x * region.width) / 100,
+        y: region.y + (c.y * region.height) / 100
+      };
+    }
+    return c;
+  }, [isCropped, region]);
+
+  const relToDisplay = useCallback((rel) => {
+    if (rel == null) return rel;
+    if (!isCropped && region) return rel * (region.height / 100);
+    return rel;
+  }, [isCropped, region]);
+
   const handleStart = useCallback((e) => {
     e.preventDefault();
-    const c = getCoords(e);
-    if (!c) return;
-    if (activeTool === 'pen') { setDrawing(true); setCurrentStroke({ type: 'pen', color: penColor, points: [c], lineWidth }); }
-    else if (activeTool === 'underline') { setDrawing(true); setCurrentStroke({ type: 'underline', startX: c.x, startY: c.y, endX: c.x, style: underlineStyle, color: penColor, lineWidth }); }
-    else if (activeTool === 'mark' && selectedMark) { onAddAnnotation?.({ type: 'mark', x: c.x, y: c.y, symbol: selectedMark.symbol, color: selectedMark.color }); }
-    else if (activeTool === 'text') { setTextPos(c); setTextDraft(''); }
+    const raw = getCoords(e);
+    if (!raw) return;
+
+    const local = toLocalCoords(raw);
+    // In full-page view, only allow interacting inside the task region
+    if (!isCropped && region && !local) return;
+
+    if (activeTool === 'pen') {
+      setDrawing(true);
+      setCurrentStroke({ type: 'pen', color: penColor, points: [local || raw], lineWidth });
+    }
+    else if (activeTool === 'underline') {
+      setDrawing(true);
+      const p = (local || raw);
+      setCurrentStroke({ type: 'underline', startX: p.x, startY: p.y, endX: p.x, style: underlineStyle, color: penColor, lineWidth });
+    }
+    else if (activeTool === 'mark' && selectedMark) {
+      const p = local || raw;
+      onAddAnnotation?.({ type: 'mark', x: p.x, y: p.y, symbol: selectedMark.symbol, color: selectedMark.color, role: activeRole });
+    }
+    else if (activeTool === 'text') {
+      // keep raw coords for exact cursor preview; we convert to local on submit
+      setTextPos(raw);
+      setTextDraft('');
+    }
     else if (activeTool === 'eraser') {
+      const p = local || raw;
       const hit = annotations?.find(a => {
         const r = a?.role || 'first';
         if (r !== activeRole) return false;
-        if (a.type === 'pen') return a.points?.some(p => Math.abs(p.x - c.x) < 4 && Math.abs(p.y - c.y) < 4);
-        if (a.type === 'mark' || a.type === 'text') return Math.abs(a.x - c.x) < 5 && Math.abs(a.y - c.y) < 5;
-        if (a.type === 'underline') return Math.abs(a.y - c.y) < 4 && c.x >= a.x && c.x <= a.x + a.width;
+        if (a.type === 'pen') return a.points?.some(pt => Math.abs(pt.x - p.x) < 4 && Math.abs(pt.y - p.y) < 4);
+        if (a.type === 'mark' || a.type === 'text') return Math.abs(a.x - p.x) < 5 && Math.abs(a.y - p.y) < 5;
+        if (a.type === 'underline') return Math.abs(a.y - p.y) < 4 && p.x >= a.x && p.x <= a.x + a.width;
         return false;
       });
       if (hit) onDeleteAnnotation?.(hit);
     }
-  }, [activeTool, penColor, lineWidth, underlineStyle, selectedMark, annotations, onAddAnnotation, onDeleteAnnotation, getCoords, activeRole]);
+  }, [activeTool, penColor, lineWidth, underlineStyle, selectedMark, annotations, onAddAnnotation, onDeleteAnnotation, getCoords, toLocalCoords, isCropped, region, activeRole]);
 
   const handleMove = useCallback((e) => {
     if (!drawing || !currentStroke) return;
-    const c = getCoords(e);
-    if (!c) return;
-    if (currentStroke.type === 'pen') setCurrentStroke(s => ({ ...s, points: [...s.points, c] }));
-    else if (currentStroke.type === 'underline') setCurrentStroke(s => ({ ...s, endX: c.x }));
-  }, [drawing, currentStroke, getCoords]);
+    const raw = getCoords(e);
+    if (!raw) return;
+
+    const local = toLocalCoords(raw);
+    if (!isCropped && region && !local) return;
+
+    const p = local || raw;
+    if (currentStroke.type === 'pen') setCurrentStroke(s => ({ ...s, points: [...s.points, p] }));
+    else if (currentStroke.type === 'underline') setCurrentStroke(s => ({ ...s, endX: p.x }));
+  }, [drawing, currentStroke, getCoords, toLocalCoords, isCropped, region]);
 
   const handleEnd = useCallback(() => {
     if (!drawing || !currentStroke) return;
@@ -1552,7 +1641,15 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
 
   const submitText = (text) => {
     if (textPos && text.trim()) {
-      onAddAnnotation?.({ type: 'text', x: textPos.x, y: textPos.y, text: text.trim(), color: (textColor || penColor), fontSize: (textSize || 16), opacity: (textOpacity ?? 1), anchor: 'baseline' });
+      const local = toLocalCoords(textPos);
+      if (local) {
+        const fsPx = (textSize ?? 18);
+        const hPxRaw = (containerPx.h || containerRef.current?.getBoundingClientRect().height || canvasRef.current?.height || 0);
+        const hPx = Math.max(1, hPxRaw);
+        const regionHPx = (!isCropped && region) ? Math.max(1, hPx * (region.height / 100)) : hPx;
+        const fsRel = (fsPx / regionHPx) * 100; // relative to region height
+        onAddAnnotation?.({ type: 'text', x: local.x, y: local.y, text: text.trim(), color: (textColor || penColor), fontSize: fsPx, fontSizeRel: fsRel, opacity: (textOpacity ?? 1), anchor: 'baseline' });
+      }
     }
     setTextPos(null);
     setTextDraft('');
@@ -1560,9 +1657,17 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
 
   // Render underline SVG path based on style
   const renderUnderlinePath = (a, i, isPreview = false) => {
-    const x1 = a.x ?? Math.min(a.startX, a.endX);
-    const y = a.y ?? a.startY;
-    const w = a.width ?? Math.abs(a.endX - a.startX);
+    let x1 = a.x ?? Math.min(a.startX, a.endX);
+    let y = a.y ?? a.startY;
+    let w = a.width ?? Math.abs(a.endX - a.startX);
+
+    // Convert local (region) coords to display (page) coords when showing the whole page
+    if (!isCropped && region) {
+      x1 = region.x + (x1 * region.width) / 100;
+      y = region.y + (y * region.height) / 100;
+      w = (w * region.width) / 100;
+    }
+
     const x2 = x1 + w;
     const opacity = isPreview ? 0.6 : 1;
     // vectorEffect="non-scaling-stroke" means strokeWidth is in screen pixels
@@ -1593,9 +1698,35 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
         <svg className="absolute inset-0 pointer-events-none overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
           {/* Pen strokes */}
           {annotations?.filter(a => a.type === 'pen').map((a, i) => (
-            <path key={i} d={a.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')} fill="none" stroke={a.color} strokeWidth={a.lineWidth || 2} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+            <path
+              key={i}
+              d={a.points.map((p, j) => {
+                const dp = toDisplayCoords(p) || p;
+                return `${j === 0 ? 'M' : 'L'} ${dp.x} ${dp.y}`;
+              }).join(' ')}
+              fill="none"
+              stroke={a.color}
+              strokeWidth={a.lineWidth || 2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
           ))}
-          {currentStroke?.type === 'pen' && <path d={currentStroke.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')} fill="none" stroke={currentStroke.color} strokeWidth={currentStroke.lineWidth} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" opacity={0.7} />}
+          {currentStroke?.type === 'pen' && (
+            <path
+              d={currentStroke.points.map((p, j) => {
+                const dp = toDisplayCoords(p) || p;
+                return `${j === 0 ? 'M' : 'L'} ${dp.x} ${dp.y}`;
+              }).join(' ')}
+              fill="none"
+              stroke={currentStroke.color}
+              strokeWidth={currentStroke.lineWidth}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+              opacity={0.7}
+            />
+          )}
           
           {/* Underlines - all rendered via SVG for consistent wavy support */}
           {annotations?.filter(a => a.type === 'underline').map((a, i) => renderUnderlinePath(a, i))}
@@ -1610,20 +1741,38 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
 
           {/* Text annotations (SVG: baseline-accurate + opacity) */}
           {annotations?.filter(a => a.type === 'text').map((a, i) => {
-            const fs = a.fontSize || 16;
-            const h = containerPx.h || 1;
+            const hRaw = containerPx.h || containerRef.current?.getBoundingClientRect().height || canvasRef.current?.height || 0;
+            const h = Math.max(1, hRaw);
+            let fsRel = (a.fontSizeRel != null) ? a.fontSizeRel : (((a.fontSize || 18) / h) * 100);
+            // Guard against invalid values from earlier renders where h was 0.
+            if (!Number.isFinite(fsRel) || fsRel <= 0 || fsRel > 20) {
+              fsRel = (((a.fontSize || 18) / h) * 100);
+            }
             // Backward-compat: older projects stored y as top-left; baseline is ~fontSize lower.
-            const baselineY = (a.anchor === 'baseline') ? a.y : (a.y + (fs / h) * 100);
+            const baselineLocalY = (a.anchor === 'baseline') ? a.y : (a.y + fsRel);
+
+            const dispPos = toDisplayCoords({ x: a.x, y: baselineLocalY }) || { x: a.x, y: baselineLocalY };
+            const xDisp = dispPos.x;
+            const yDisp = dispPos.y;
+            const fsDisp = relToDisplay(fsRel);
+
+            const fix = textAspectFix;
+            const needsFix = Math.abs(fix - 1) > 0.001;
+            const transform = needsFix
+              ? `translate(${xDisp} ${yDisp}) scale(${fix} 1) translate(${-xDisp} ${-yDisp})`
+              : undefined;
             return (
               <text
                 key={`t${i}`}
-                x={a.x}
-                y={baselineY}
+                x={xDisp}
+                y={yDisp}
                 fill={a.color}
                 opacity={a.opacity ?? 1}
-                style={{ fontSize: `${fs}px`, fontWeight: 500 }}
+                fontSize={fsDisp}
+                fontWeight={400}
                 dominantBaseline="alphabetic"
                 textAnchor="start"
+                transform={transform}
               >
                 {a.text}
               </text>
@@ -1632,18 +1781,26 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
 
           {/* Text draft preview at the exact cursor baseline */}
           {textPos && (() => {
-            const fs = (textSize || 16);
-            const h = containerPx.h || 1;
-            const fsPct = (fs / h) * 100;
+            const fsPx = (textSize ?? 18);
+            const hRaw = containerPx.h || containerRef.current?.getBoundingClientRect().height || canvasRef.current?.height || 0;
+            const h = Math.max(1, hRaw);
+            const regionHPx = (!isCropped && region) ? Math.max(1, h * (region.height / 100)) : h;
+            const fsRelLocal = (fsPx / regionHPx) * 100;
+            const fsRel = relToDisplay(fsRelLocal);
             const col = (textColor || penColor);
+            const fix = textAspectFix;
+            const needsFix = Math.abs(fix - 1) > 0.001;
+            const transform = needsFix
+              ? `translate(${textPos.x} ${textPos.y}) scale(${fix} 1) translate(${-textPos.x} ${-textPos.y})`
+              : undefined;
             return (
               <>
                 {/* caret */}
                 <line
                   x1={textPos.x}
                   x2={textPos.x}
-                  y1={textPos.y - fsPct}
-                  y2={textPos.y + fsPct * 0.15}
+                  y1={textPos.y - fsRel}
+                  y2={textPos.y + fsRel * 0.15}
                   stroke={col}
                   opacity={0.8}
                   style={{ strokeWidth: '1px' }}
@@ -1653,9 +1810,12 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
                   y={textPos.y}
                   fill={col}
                   opacity={(textOpacity ?? 1)}
-                  style={{ fontSize: `${fs}px`, fontWeight: 500 }}
+                  fontSize={fsRel}
+                  fontWeight={400}
+
                   dominantBaseline="alphabetic"
                   textAnchor="start"
+                  transform={transform}
                 >
                   {textDraft || ''}
                 </text>
@@ -1684,9 +1844,12 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
         )}
 
         {/* Marks */}
-        {annotations?.filter(a => a.type === 'mark').map((a, i) => (
-          <div key={`m${i}`} className="absolute pointer-events-none text-xs font-bold px-1 rounded" style={{ left: `${a.x}%`, top: `${a.y}%`, backgroundColor: `${a.color}25`, color: a.color, transform: 'translate(-50%, -50%)', border: `1.5px solid ${a.color}50` }}>{a.symbol}</div>
-        ))}
+        {annotations?.filter(a => a.type === 'mark').map((a, i) => {
+          const p = toDisplayCoords({ x: a.x, y: a.y }) || { x: a.x, y: a.y };
+          return (
+            <div key={`m${i}`} className="absolute pointer-events-none text-xs font-bold px-1 rounded" style={{ left: `${p.x}%`, top: `${p.y}%`, backgroundColor: `${a.color}25`, color: a.color, transform: 'translate(-50%, -50%)', border: `1.5px solid ${a.color}50` }}>{a.symbol}</div>
+          );
+        })}
         {/* Task point label at top-right of cropped region */}
         {taskPointLabel && isCropped && (
           <div className="absolute top-2 right-2 pointer-events-none">
@@ -1774,6 +1937,26 @@ function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, t
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [clampToViewport]);
+
+  // When switching tools, collapse any open popovers so the UI doesn't feel "stuck".
+  useEffect(() => {
+    if (activeTool !== 'text') setShowTextStyle(false);
+    // showSize is only relevant for pen/underline; close it when leaving those.
+    if (activeTool !== 'pen' && activeTool !== 'underline') setShowSize(false);
+  }, [activeTool]);
+
+  // Close popovers on outside click/tap.
+  useEffect(() => {
+    const onDown = (e) => {
+      const bar = barRef.current;
+      if (!bar) return;
+      if (bar.contains(e.target)) return;
+      setShowTextStyle(false);
+      setShowSize(false);
+    };
+    window.addEventListener('pointerdown', onDown);
+    return () => window.removeEventListener('pointerdown', onDown);
+  }, []);
 
   const handleDragStart = (e) => {
     e.preventDefault();
@@ -1873,7 +2056,7 @@ function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, t
       <button onClick={() => toggle('text')} title="Text einfügen" className={`p-2 rounded-lg transition-colors ${activeTool === 'text' ? 'bg-blue-500/30 ring-2 ring-blue-500' : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><Type size={18} /></button>
       <div className="relative">
         <button
-          onClick={() => setShowTextStyle(v => !v)}
+          onClick={() => { setActiveTool('text'); setShowTextStyle(v => !v); }}
           title="Text: Farbe, Größe & Transparenz"
           className={`p-2 rounded-lg ${showTextStyle ? (darkMode ? 'bg-gray-700' : 'bg-gray-300') : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}
         >
@@ -2566,6 +2749,7 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
   const [activeTool, setActiveTool] = useState(null);
   const [penColor, setPenColor] = useState(role === 'second' ? '#22c55e' : '#ef4444');
   const [textColor, setTextColor] = useState(role === 'second' ? '#22c55e' : '#ef4444');
+  // Default text size tuned for typical correction annotations (can be adjusted in the toolbar).
   const [textSize, setTextSize] = useState(18);
   const [textOpacity, setTextOpacity] = useState(1);
   const lastPenColorRef = useRef(role === 'second' ? '#22c55e' : '#ef4444');

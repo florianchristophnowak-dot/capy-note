@@ -1,9 +1,9 @@
 {
   "name": "capy-note",
-  "version": "1.2.4",
+  "version": "1.2.8",
   "description": "Capy-note - Effiziente Bewertung gescannter Schülerarbeiten",
   "main": "electron/main.cjs",
-  "author": "Florian Nowak",
+  "author": "Florian Christoph Nowak",
   "license": "MIT",
   "private": true,
   "type": "module",
