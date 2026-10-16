@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { FileUp, ChevronLeft, ChevronRight, Plus, Sun, Moon, Trash2, ZoomIn, ZoomOut, X, Check, Crop, Save, Eye, AlertTriangle, PenTool, Type, Undo2, Table, Edit3, SkipForward, Filter, Eraser, Circle, Download, FileText, Users, Award, BarChart3, CheckCircle2, Clock, Archive, Calendar, PartyPopper, Loader2, Move, AlignCenterVertical, Settings } from 'lucide-react';
+import { FileUp, ChevronLeft, ChevronRight, Plus, Sun, Moon, Trash2, ZoomIn, ZoomOut, X, Check, Crop, Save, Eye, AlertTriangle, PenTool, Type, Undo2, Table, Edit3, SkipForward, Filter, Eraser, Circle, Download, FileText, Users, Award, BarChart3, CheckCircle2, Clock, Archive, Calendar, PartyPopper, Loader2, Move, AlignCenterVertical, Settings, CircleHelp } from 'lucide-react';
 
 // ==================== App Version ====================
 const APP_VERSION = '1.2.8';
@@ -143,6 +143,40 @@ function Toast({ message, type = 'success', onClose }) {
       {icons[type]}
       <span className="font-medium">{message}</span>
     </div>
+  );
+}
+
+// ==================== Guided onboarding ====================
+function OnboardingPanel({ step, total = 8, title, children, onSkip, darkMode, placement = 'bottom-right' }) {
+  const positionClass = placement === 'top-left' ? 'top-24 left-6' : placement === 'top-right' ? 'top-24 right-6' : 'bottom-6 right-6';
+  return (
+    <aside
+      className={`fixed ${positionClass} z-[90] w-[360px] max-w-[calc(100vw-3rem)] rounded-2xl border shadow-2xl ${darkMode ? 'bg-gray-900 border-amber-500/50 text-white' : 'bg-white border-amber-400 text-gray-900'}`}
+      aria-live="polite"
+      aria-label={`Geführte Einführung, Schritt ${step} von ${total}`}
+    >
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">Einführung · {step} von {total}</p>
+            <h2 className="mt-1 font-semibold">{title}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onSkip}
+            className={`p-1.5 rounded-lg ${darkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+            title="Einführung beenden"
+            aria-label="Einführung beenden"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className={`mt-2 text-sm leading-relaxed ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{children}</div>
+        <div className={`mt-4 h-1.5 overflow-hidden rounded-full ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>
+          <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${Math.round((step / total) * 100)}%` }} />
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -1882,7 +1916,7 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
 }
 
 // ==================== Annotation Toolbar ====================
-function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, textColor, setTextColor, textSize, setTextSize, textOpacity, setTextOpacity, lineWidth, setLineWidth, underlineStyle, setUnderlineStyle, correctionMarks, selectedMark, setSelectedMark, onUndo, canUndo, darkMode }) {
+function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, textColor, setTextColor, textSize, setTextSize, textOpacity, setTextOpacity, lineWidth, setLineWidth, underlineStyle, setUnderlineStyle, correctionMarks, selectedMark, setSelectedMark, onUndo, canUndo, darkMode, onboardingStep = 0, onOnboardingAdvance }) {
   const [showSize, setShowSize] = useState(false);
   const [showTextStyle, setShowTextStyle] = useState(false);
 
@@ -2001,6 +2035,8 @@ function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, t
       ref={barRef}
       className={`fixed z-40 flex items-center gap-1 p-2 rounded-xl select-none ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}
       style={{ left: `${pos.left}px`, top: `${pos.top}px`, touchAction: 'none' }}
+      role="toolbar"
+      aria-label="Korrekturwerkzeuge"
     >
       {/* Drag handle */}
       <div
@@ -2016,8 +2052,8 @@ function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, t
       </div>
 
       <div className={`flex gap-1 pr-2 border-r ${darkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-        <button onClick={() => { toggle('pen', penColor !== '#ef4444'); setPenColor('#ef4444'); }} title="Rotstift" className={`p-2 rounded-lg transition-colors ${activeTool === 'pen' && penColor === '#ef4444' ? 'bg-red-500/30 ring-2 ring-red-500' : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><PenTool size={18} className="text-red-500" /></button>
-        <button onClick={() => { toggle('pen', penColor !== '#22c55e'); setPenColor('#22c55e'); }} title="Grünstift" className={`p-2 rounded-lg transition-colors ${activeTool === 'pen' && penColor === '#22c55e' ? 'bg-green-500/30 ring-2 ring-green-500' : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><PenTool size={18} className="text-green-500" /></button>
+        <button onClick={() => { toggle('pen', penColor !== '#ef4444'); setPenColor('#ef4444'); if (onboardingStep === 5) onOnboardingAdvance?.(6); }} title="Rotstift" aria-label="Rotstift" aria-pressed={activeTool === 'pen' && penColor === '#ef4444'} className={`p-2 rounded-lg transition-colors ${activeTool === 'pen' && penColor === '#ef4444' ? 'bg-red-500/30 ring-2 ring-red-500' : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'} ${onboardingStep === 5 ? 'ring-2 ring-amber-400 animate-pulse' : ''}`}><PenTool size={18} className="text-red-500" /></button>
+        <button onClick={() => { toggle('pen', penColor !== '#22c55e'); setPenColor('#22c55e'); }} title="Grünstift" aria-label="Grünstift" aria-pressed={activeTool === 'pen' && penColor === '#22c55e'} className={`p-2 rounded-lg transition-colors ${activeTool === 'pen' && penColor === '#22c55e' ? 'bg-green-500/30 ring-2 ring-green-500' : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><PenTool size={18} className="text-green-500" /></button>
         <div className="relative">
           <button onClick={() => setShowSize(!showSize)} title="Stift-/Unterstreichungsgröße" className={`p-2 rounded-lg ${showSize ? (darkMode ? 'bg-gray-700' : 'bg-gray-300') : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><Circle size={16} /></button>
           {showSize && (
@@ -2150,7 +2186,7 @@ function SplashScreen({ onFinish }) {
 }
 
 // ==================== Dashboard ====================
-function Dashboard({ darkMode, setDarkMode, projects, onNew, onOpen, onDelete, onImport }) {
+function Dashboard({ darkMode, setDarkMode, projects, onNew, onDemo, onOpen, onDelete, onImport }) {
   const [del, setDel] = useState(null);
   const [expiredProjects, setExpiredProjects] = useState([]);
   const importRef = useRef(null);
@@ -2212,8 +2248,9 @@ function Dashboard({ darkMode, setDarkMode, projects, onNew, onOpen, onDelete, o
             <h1 className="text-xl font-bold"><span className="text-amber-500">Capy</span>-note</h1>
           </div>
           <div className="flex gap-3">
-            <button onClick={() => importRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"><FileUp size={20} /> Import</button>
-            <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}>{darkMode ? <Sun size={20} /> : <Moon size={20} />}</button>
+            <button onClick={() => importRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"><FileUp size={20} /> Zweitkorrektur importieren</button>
+            <button onClick={onDemo} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Geführte Einführung starten" aria-label="Geführte Einführung starten"><CircleHelp size={20} /></button>
+            <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title={darkMode ? 'Helles Design' : 'Dunkles Design'} aria-label={darkMode ? 'Helles Design aktivieren' : 'Dunkles Design aktivieren'}>{darkMode ? <Sun size={20} /> : <Moon size={20} />}</button>
             <button onClick={onNew} className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition-colors"><Plus size={20} /> Neue Korrektur</button>
           </div>
         </div>
@@ -2223,8 +2260,11 @@ function Dashboard({ darkMode, setDarkMode, projects, onNew, onOpen, onDelete, o
           <div className={`text-center py-16 rounded-2xl border-2 border-dashed ${darkMode ? 'border-gray-700' : 'border-gray-300'}`}>
             <div className="mb-4 flex justify-center"><CapyLogo size={80} /></div>
             <h2 className="text-xl font-semibold mb-2">Willkommen bei Capy-note!</h2>
-            <p className={`mb-6 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Starten Sie Ihre erste Korrektur</p>
-            <button onClick={onNew} className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-lg inline-flex items-center gap-2 transition-colors"><FileUp size={20} /> PDF hochladen</button>
+            <p className={`mb-6 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Starten Sie Ihre erste Korrektur oder lernen Sie den Ablauf in einer kurzen Demo kennen.</p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <button onClick={onNew} className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-lg inline-flex items-center gap-2 transition-colors"><FileUp size={20} /> PDF hochladen</button>
+              <button onClick={onDemo} className={`px-6 py-3 rounded-lg inline-flex items-center gap-2 transition-colors ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}><CircleHelp size={20} /> Capy-note kennenlernen</button>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
@@ -2260,7 +2300,7 @@ function Dashboard({ darkMode, setDarkMode, projects, onNew, onOpen, onDelete, o
 }
 
 // ==================== Setup ====================
-function SetupWizard({ darkMode, onBack, onComplete }) {
+function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
   const [step, setStep] = useState(1);
   const [pdfFile, setPdfFile] = useState(null);
   const [pdfDoc, setPdfDoc] = useState(null);
@@ -2283,7 +2323,10 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
   const [scoreFields, setScoreFields] = useState({ totalField: null, gradeField: null });
   const [allowSecondViewFirst, setAllowSecondViewFirst] = useState(false);
   const [toast, setToast] = useState(null);
+  const [guidedOnboarding, setGuidedOnboarding] = useState(startWithDemo);
+  const [guideStep, setGuideStep] = useState(startWithDemo ? 1 : 0);
   const fileRef = useRef(null);
+  const demoStartedRef = useRef(false);
 
   const studentCount = Math.ceil(pageCount / pagesPerStudent);
 
@@ -2304,12 +2347,36 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
     } finally { setLoading(false); }
   };
 
-  const startDemo = () => {
+  const startDemo = (guided = false) => {
     const demo = createDemoPdf(8);
-    setPdfFile({ name: 'Demo.pdf' }); setPdfDoc(demo); setPdfArrayBuffer(null); setPageCount(8); setTitle('Demo-Klassenarbeit'); setStep(2);
+    setPdfFile({ name: 'Demo.pdf' }); setPdfDoc(demo); setPdfArrayBuffer(null); setPageCount(8); setTitle('Demo-Klassenarbeit'); setLevel('Demo-Klasse'); setStep(2);
+    if (guided) {
+      setGuidedOnboarding(true);
+      setGuideStep(1);
+    }
   };
 
-  const saveTask = (data) => { setTasks([...tasks, { id: `t_${Date.now()}`, ...data, page: pendingRegion.page, region: pendingRegion }]); setPendingRegion(null); };
+  useEffect(() => {
+    if (!startWithDemo || demoStartedRef.current) return;
+    demoStartedRef.current = true;
+    startDemo(true);
+  }, [startWithDemo]);
+
+  const saveTask = (data) => {
+    setTasks([...tasks, { id: `t_${Date.now()}`, ...data, page: pendingRegion.page, region: pendingRegion }]);
+    setPendingRegion(null);
+    if (guidedOnboarding) setGuideStep(4);
+  };
+
+  const openTaskSetup = () => {
+    setStep(3);
+    if (guidedOnboarding) setGuideStep(2);
+  };
+
+  const stopOnboarding = () => {
+    setGuidedOnboarding(false);
+    setGuideStep(0);
+  };
 
   const finish = () => {
     if (!tasks.length) return alert('Bitte mindestens eine Aufgabe definieren.');
@@ -2319,6 +2386,7 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
       pdfName: pdfFile.name, pageCount, studentCount, tasks, students, 
       pdfArrayBuffer, scoreFields, allowSecondViewFirst,
       modelSolutions: {}, modelSolutionOpacity: defaultModelOpacity,
+      guidedOnboarding: guidedOnboarding ? { active: true, step: 5 } : null,
       resumeTask: 0, resumeStudent: 0 
     });
   };
@@ -2344,7 +2412,7 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
           )}
         </div>
         <div className="mt-6 text-center">
-          <button onClick={startDemo} className={`px-6 py-3 rounded-xl ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'} transition-colors`}>🎮 Demo-Modus</button>
+          <button onClick={() => startDemo(true)} className={`px-6 py-3 rounded-xl inline-flex items-center gap-2 ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'} transition-colors`}><CircleHelp size={18} /> Capy-note kennenlernen (Demo)</button>
         </div>
       </main>
       <Footer darkMode={darkMode} />
@@ -2354,6 +2422,11 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
   if (step === 2) return (
     <div className={`min-h-screen flex flex-col ${darkMode ? 'bg-gray-950 text-white' : 'bg-gray-100 text-gray-900'}`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {guidedOnboarding && guideStep === 1 && (
+        <OnboardingPanel step={1} title="Seitenaufteilung prüfen" onSkip={stopOnboarding} darkMode={darkMode} placement="top-right">
+          Capy-note teilt das Klassen-PDF anhand der Seitenzahl pro Schüler auf. Prüfen Sie die berechnete Schülerzahl und klicken Sie anschließend auf „Weiter“.
+        </OnboardingPanel>
+      )}
       {showGradeEditor && <GradeTableEditor gradeTable={gradeTable} onChange={setGradeTable} onClose={() => setShowGradeEditor(false)} darkMode={darkMode} />}
       {showMarksEditor && <CorrectionMarksEditor marks={correctionMarks} onChange={setCorrectionMarks} onClose={() => setShowMarksEditor(false)} darkMode={darkMode} />}
       <header className={`border-b ${darkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
@@ -2405,7 +2478,7 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
         </div>
         <div className="flex justify-between">
           <button onClick={() => setStep(1)} className={`px-6 py-2 rounded-xl ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>Zurück</button>
-          <button onClick={() => setStep(3)} disabled={!title || !level} className="px-6 py-2 bg-amber-600 text-white rounded-xl disabled:opacity-50 font-medium">Weiter</button>
+          <button onClick={openTaskSetup} disabled={!title || !level} className={`px-6 py-2 bg-amber-600 text-white rounded-xl disabled:opacity-50 font-medium ${guidedOnboarding && guideStep === 1 ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-transparent' : ''}`}>Weiter</button>
         </div>
       </main>
       <Footer darkMode={darkMode} />
@@ -2416,6 +2489,21 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
     <div className={`min-h-screen flex flex-col ${darkMode ? 'bg-gray-950 text-white' : 'bg-gray-100 text-gray-900'}`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {pendingRegion && pendingRegion.type === 'task' && <TaskDialog count={tasks.length} onSave={saveTask} onCancel={() => setPendingRegion(null)} darkMode={darkMode} />}
+      {guidedOnboarding && guideStep === 2 && (
+        <OnboardingPanel step={2} title="Aufgabenbereich auswählen" onSkip={stopOnboarding} darkMode={darkMode}>
+          Klicken Sie auf „Aufgabenbereich hinzufügen“. Anschließend markieren Sie den zu korrigierenden Ausschnitt direkt auf der PDF-Seite.
+        </OnboardingPanel>
+      )}
+      {guidedOnboarding && guideStep === 3 && (
+        <OnboardingPanel step={3} title="Bereich auf der PDF markieren" onSkip={stopOnboarding} darkMode={darkMode}>
+          Ziehen Sie ein Rechteck über einen Aufgabenbereich. Danach vergeben Sie einen Namen und die maximale Punktzahl für diese Aufgabe.
+        </OnboardingPanel>
+      )}
+      {guidedOnboarding && guideStep === 4 && (
+        <OnboardingPanel step={4} title="Ergebnisfelder festlegen" onSkip={stopOnboarding} darkMode={darkMode}>
+          Gesamtpunktzahl und Note werden getrennt markiert. Beide Felder sind optional. Klicken Sie anschließend oben auf „Korrektur starten“.
+        </OnboardingPanel>
+      )}
       <header className={`border-b flex-shrink-0 ${darkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
         <div className="px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
@@ -2425,7 +2513,7 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
               <p className={`text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>Schritt 3 von 3: Markieren Sie Bereiche auf Seite 1-{pagesPerStudent} eines Schülers</p>
             </div>
           </div>
-          <button onClick={finish} disabled={!tasks.length} className="px-6 py-2 bg-amber-600 text-white rounded-xl disabled:opacity-50 font-medium">
+          <button onClick={finish} disabled={!tasks.length} className={`px-6 py-2 bg-amber-600 text-white rounded-xl disabled:opacity-50 font-medium ${guidedOnboarding && guideStep === 4 ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-transparent' : ''}`}>
             Korrektur starten ({tasks.length} {tasks.length === 1 ? 'Aufgabe' : 'Aufgaben'})
           </button>
         </div>
@@ -2435,15 +2523,15 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
           <div className="mb-6">
             <div className="flex justify-between items-center mb-3">
               <span className="font-medium">Aufgaben</span>
-              <button onClick={() => { setSelectionMode('task'); }} disabled={selectionMode}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${selectionMode === 'task' ? 'bg-blue-600 text-white' : 'bg-amber-600 text-white'} disabled:opacity-50`}>
-                <Crop size={14} className="inline mr-1" />Markieren
+              <button onClick={() => { setSelectionMode('task'); if (guidedOnboarding) setGuideStep(3); }} disabled={selectionMode}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${selectionMode === 'task' ? 'bg-blue-600 text-white' : 'bg-amber-600 text-white'} disabled:opacity-50 ${guidedOnboarding && guideStep === 2 ? 'ring-2 ring-amber-300' : ''}`}>
+                <Crop size={14} className="inline mr-1" />Aufgabenbereich hinzufügen
               </button>
             </div>
             {selectionMode === 'task' && <div className={`p-3 mb-3 rounded-lg text-sm ${darkMode ? 'bg-blue-900/30 border border-blue-700 text-blue-400' : 'bg-blue-100 border border-blue-300 text-blue-700'}`}>👆 Ziehen Sie ein Rechteck über den Aufgabenbereich</div>}
             {tasks.length === 0 && !selectionMode && (
               <div className={`p-4 rounded-lg text-sm text-center ${darkMode ? 'bg-gray-800 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
-                Noch keine Aufgaben definiert. Klicken Sie „Markieren" und ziehen Sie einen Bereich auf dem PDF.
+                Noch keine Aufgaben definiert. Klicken Sie „Aufgabenbereich hinzufügen“ und ziehen Sie einen Bereich auf dem PDF.
               </div>
             )}
             {tasks.map((t, i) => (
@@ -2456,40 +2544,66 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
             ))}
           </div>
           
-          <div className={`pt-4 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-            <div className="flex justify-between items-center mb-3">
+          <div className={`pt-4 border-t ${guidedOnboarding && guideStep === 4 ? 'ring-2 ring-amber-400 rounded-xl p-3 -mx-3' : ''} ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className="mb-3">
               <span className="font-medium">Ergebnisfelder</span>
-              <button onClick={() => { setSelectionMode('scoreField'); setCurrentPage(1); }} disabled={selectionMode}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${selectionMode === 'scoreField' ? 'bg-green-600 text-white' : darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-300 text-gray-700'} disabled:opacity-50`}>
-                <Plus size={14} className="inline mr-1" />Feld
-              </button>
+              <span className={`ml-2 text-xs ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>(optional)</span>
             </div>
-            {selectionMode === 'scoreField' && <div className={`p-3 mb-3 rounded-lg text-sm ${darkMode ? 'bg-green-900/30 border border-green-700 text-green-400' : 'bg-green-100 border border-green-300 text-green-700'}`}>Ziehen Sie ein Rechteck für Punkte/Note (auf Seite 1)</div>}
-            
+
+            {(selectionMode === 'totalField' || selectionMode === 'gradeField') && (
+              <div className={`p-3 mb-3 rounded-lg text-sm ${darkMode ? 'bg-blue-900/30 border border-blue-700 text-blue-300' : 'bg-blue-100 border border-blue-300 text-blue-700'}`}>
+                Ziehen Sie jetzt ein Rechteck für {selectionMode === 'totalField' ? 'die Gesamtpunktzahl (BE)' : 'die Note'} auf Seite 1.
+              </div>
+            )}
+
             <div className={`p-3 rounded-lg border mb-2 ${scoreFields.totalField ? (darkMode ? 'border-green-700 bg-green-900/20' : 'border-green-300 bg-green-50') : (darkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50')}`}>
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${scoreFields.totalField ? 'bg-green-500' : 'bg-gray-500'}`} />
-                  <span className="text-sm">BE gesamt</span>
+              <div className="flex justify-between items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${scoreFields.totalField ? 'bg-green-500' : 'bg-gray-500'}`} />
+                  <div className="min-w-0">
+                    <p className="text-sm">Gesamtpunktzahl (BE)</p>
+                    <p className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>{scoreFields.totalField ? 'Festgelegt' : 'Nicht festgelegt'}</p>
+                  </div>
                 </div>
-                {scoreFields.totalField && <button onClick={() => setScoreFields(f => ({ ...f, totalField: null }))} className="text-red-400 hover:text-red-300"><X size={14} /></button>}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => { setSelectionMode('totalField'); setCurrentPage(1); }}
+                    disabled={!!selectionMode}
+                    className={`px-2 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 ${selectionMode === 'totalField' ? 'bg-blue-600 text-white' : darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                  >
+                    {scoreFields.totalField ? 'Neu festlegen' : 'Markieren'}
+                  </button>
+                  {scoreFields.totalField && <button onClick={() => setScoreFields(f => ({ ...f, totalField: null }))} className="p-1.5 rounded text-red-400 hover:bg-red-500/20" title="Gesamtpunktzahl entfernen" aria-label="Gesamtpunktzahl entfernen"><X size={14} /></button>}
+                </div>
               </div>
             </div>
-            
+
             <div className={`p-3 rounded-lg border mb-2 ${scoreFields.gradeField ? (darkMode ? 'border-green-700 bg-green-900/20' : 'border-green-300 bg-green-50') : (darkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50')}`}>
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${scoreFields.gradeField ? 'bg-green-500' : 'bg-gray-500'}`} />
-                  <span className="text-sm">Note</span>
+              <div className="flex justify-between items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${scoreFields.gradeField ? 'bg-green-500' : 'bg-gray-500'}`} />
+                  <div>
+                    <p className="text-sm">Note</p>
+                    <p className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>{scoreFields.gradeField ? 'Festgelegt' : 'Nicht festgelegt'}</p>
+                  </div>
                 </div>
-                {scoreFields.gradeField && <button onClick={() => setScoreFields(f => ({ ...f, gradeField: null }))} className="text-red-400 hover:text-red-300"><X size={14} /></button>}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => { setSelectionMode('gradeField'); setCurrentPage(1); }}
+                    disabled={!!selectionMode}
+                    className={`px-2 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 ${selectionMode === 'gradeField' ? 'bg-blue-600 text-white' : darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                  >
+                    {scoreFields.gradeField ? 'Neu festlegen' : 'Markieren'}
+                  </button>
+                  {scoreFields.gradeField && <button onClick={() => setScoreFields(f => ({ ...f, gradeField: null }))} className="p-1.5 rounded text-red-400 hover:bg-red-500/20" title="Note entfernen" aria-label="Note entfernen"><X size={14} /></button>}
+                </div>
               </div>
             </div>
-            
+
             <p className={`text-xs mt-2 ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>
-              {scoreFields.totalField || scoreFields.gradeField 
-                ? '✓ Felder werden beim PDF-Export mit Werten gefüllt.' 
-                : 'Optional: Ohne Felder werden Punkte/Note oben rechts eingefügt.'}
+              {scoreFields.totalField || scoreFields.gradeField
+                ? '✓ Festgelegte Felder werden beim PDF-Export mit Werten gefüllt.'
+                : 'Ohne festgelegte Felder werden Gesamtpunktzahl und Note oben rechts eingefügt.'}
             </p>
           </div>
         </div>
@@ -2518,9 +2632,8 @@ function SetupWizard({ darkMode, onBack, onComplete }) {
                   onSelect={r => {
                     if (selectionMode === 'task') {
                       setPendingRegion({ ...r, page: currentPage, type: 'task' });
-                    } else if (selectionMode === 'scoreField') {
-                      const fieldType = !scoreFields.totalField ? 'totalField' : !scoreFields.gradeField ? 'gradeField' : null;
-                      if (fieldType) setScoreFields(f => ({ ...f, [fieldType]: r }));
+                    } else if (selectionMode === 'totalField' || selectionMode === 'gradeField') {
+                      setScoreFields(f => ({ ...f, [selectionMode]: r }));
                     }
                     setSelectionMode(null);
                   }} />
@@ -2780,6 +2893,8 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
   const [modelOpacity, setModelOpacity] = useState(project.modelSolutionOpacity ?? defaultModelOpacity);
   const [editingModel, setEditingModel] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
+  const [guidedOnboarding, setGuidedOnboarding] = useState(!!project.guidedOnboarding?.active);
+  const [guideStep, setGuideStep] = useState(project.guidedOnboarding?.step || 0);
 
   const task = tasks[taskIdx];
   const student = students[studentIdx];
@@ -2871,22 +2986,28 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
     if (!canViewOtherLayer) setShowOtherLayer(false);
   }, [canViewOtherLayer]);
 
-  const setPoints = (p) => setStudents(s => {
-    const u = [...s];
-    if (!u[studentIdx].grades) u[studentIdx].grades = {};
-    const prev = u[studentIdx].grades[task.id] || {};
-    u[studentIdx].grades[task.id] = { ...prev, [pointsKey]: Math.min(p, task.maxPoints) };
-    if (u[studentIdx].pending) u[studentIdx].pending = u[studentIdx].pending.filter(id => id !== task.id);
-    return u;
-  });
+  const setPoints = (p) => {
+    setStudents(s => {
+      const u = [...s];
+      if (!u[studentIdx].grades) u[studentIdx].grades = {};
+      const prev = u[studentIdx].grades[task.id] || {};
+      u[studentIdx].grades[task.id] = { ...prev, [pointsKey]: Math.min(p, task.maxPoints) };
+      if (u[studentIdx].pending) u[studentIdx].pending = u[studentIdx].pending.filter(id => id !== task.id);
+      return u;
+    });
+    if (guidedOnboarding && guideStep === 7) setGuideStep(8);
+  };
 
-  const addAnn = (a) => setStudents(s => {
-    const u = [...s];
-    if (!u[studentIdx].annotations) u[studentIdx].annotations = {};
-    if (!u[studentIdx].annotations[task.id]) u[studentIdx].annotations[task.id] = [];
-    u[studentIdx].annotations[task.id] = [...u[studentIdx].annotations[task.id], { ...a, role }];
-    return u;
-  });
+  const addAnn = (a) => {
+    setStudents(s => {
+      const u = [...s];
+      if (!u[studentIdx].annotations) u[studentIdx].annotations = {};
+      if (!u[studentIdx].annotations[task.id]) u[studentIdx].annotations[task.id] = [];
+      u[studentIdx].annotations[task.id] = [...u[studentIdx].annotations[task.id], { ...a, role }];
+      return u;
+    });
+    if (guidedOnboarding && guideStep === 6) setGuideStep(7);
+  };
   const delAnn = (a) => setStudents(s => {
     const u = [...s];
     if (u[studentIdx].annotations?.[task.id]) u[studentIdx].annotations[task.id] = u[studentIdx].annotations[task.id].filter(x => x !== a);
@@ -2933,6 +3054,11 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
   const isLastTask = taskIdx >= tasks.length - 1;
 
   const next = () => {
+    if (guidedOnboarding && guideStep === 8) {
+      setGuidedOnboarding(false);
+      setGuideStep(0);
+      setToast({ message: 'Einführung abgeschlossen – Sie können jetzt selbstständig weiterkorrigieren.', type: 'success' });
+    }
     if (!isLastStudent) {
       setStudentIdx(i => i + 1);
     } else if (!isLastTask) {
@@ -2953,7 +3079,7 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
 
   const save = async (auto = false) => {
     setSaving(true);
-    const projectData = { ...project, correctionRole: role, allowSecondViewFirst: !!project.allowSecondViewFirst, students, tasks, gradeTable, resumeTask: taskIdx, resumeStudent: studentIdx, scoreFields, taskPointPositions, modelSolutions, modelSolutionOpacity: modelOpacity };
+    const projectData = { ...project, correctionRole: role, allowSecondViewFirst: !!project.allowSecondViewFirst, students, tasks, gradeTable, resumeTask: taskIdx, resumeStudent: studentIdx, scoreFields, taskPointPositions, modelSolutions, modelSolutionOpacity: modelOpacity, guidedOnboarding: guidedOnboarding ? { active: true, step: guideStep } : null };
     if (role === 'second') projectData.progressSecond = progress;
     else projectData.progress = progress;
     try {
@@ -2985,6 +3111,26 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
   return (
     <div className={`min-h-screen flex flex-col ${darkMode ? 'bg-gray-950 text-white' : 'bg-gray-100 text-gray-900'}`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {guidedOnboarding && guideStep === 5 && (
+        <OnboardingPanel step={5} title="Rotstift auswählen" onSkip={() => { setGuidedOnboarding(false); setGuideStep(0); }} darkMode={darkMode}>
+          Wählen Sie den hervorgehobenen Rotstift in der Werkzeugleiste. Die Symbole bleiben bewusst kompakt; beim Darüberfahren zeigt Capy-note ihre Bedeutung an.
+        </OnboardingPanel>
+      )}
+      {guidedOnboarding && guideStep === 6 && (
+        <OnboardingPanel step={6} title="Direkt auf der Arbeit schreiben" onSkip={() => { setGuidedOnboarding(false); setGuideStep(0); }} darkMode={darkMode}>
+          Ziehen Sie mit gedrückter Maustaste eine kurze Markierung auf die Arbeit. Ein erneuter Klick auf den Rotstift deaktiviert das Werkzeug.
+        </OnboardingPanel>
+      )}
+      {guidedOnboarding && guideStep === 7 && (
+        <OnboardingPanel step={7} title="Punkte vergeben" onSkip={() => { setGuidedOnboarding(false); setGuideStep(0); }} darkMode={darkMode}>
+          Vergeben Sie nun 0 BE, die volle Punktzahl oder einen eigenen Wert im Eingabefeld.
+        </OnboardingPanel>
+      )}
+      {guidedOnboarding && guideStep === 8 && (
+        <OnboardingPanel step={8} title="Zum nächsten Schüler wechseln" onSkip={() => { setGuidedOnboarding(false); setGuideStep(0); }} darkMode={darkMode} placement="top-left">
+          Klicken Sie auf „Weiter“. Capy-note arbeitet anschließend aufgabenweise durch alle Schülerarbeiten.
+        </OnboardingPanel>
+      )}
       {showGradeEditor && <GradeTableEditor gradeTable={gradeTable} onChange={setGradeTable} onClose={() => setShowGradeEditor(false)} darkMode={darkMode} />}
       {editingTask && <TaskEditor task={editingTask} onSave={t => { setTasks(ts => ts.map(x => x.id === t.id ? t : x)); }} onClose={() => setEditingTask(null)} darkMode={darkMode} />}
       {showReview && <ReviewModal students={students} tasks={tasks} currentTaskId={task?.id} pointsKey={pointsKey} onClose={() => setShowReview(false)} onSelectStudent={setStudentIdx} darkMode={darkMode} />}
@@ -3103,9 +3249,10 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
             {!isOverlayOpen && (
             <AnnotationToolbar activeTool={activeTool} setActiveTool={setActiveTool} penColor={penColor} setPenColor={setPenColor} textColor={textColor} setTextColor={setTextColor} textSize={textSize} setTextSize={setTextSize} textOpacity={textOpacity} setTextOpacity={setTextOpacity} lineWidth={lineWidth} setLineWidth={setLineWidth}
               underlineStyle={underlineStyle} setUnderlineStyle={setUnderlineStyle} correctionMarks={project.correctionMarks || defaultCorrectionMarks} selectedMark={selectedMark} setSelectedMark={setSelectedMark}
-              onUndo={editingModel ? undoModelAnn : undoAnn} canUndo={(editingModel ? (modelSolutions?.[task?.id] || []).length : myAnnotations.length) > 0} darkMode={darkMode} />
+              onUndo={editingModel ? undoModelAnn : undoAnn} canUndo={(editingModel ? (modelSolutions?.[task?.id] || []).length : myAnnotations.length) > 0} darkMode={darkMode}
+              onboardingStep={guidedOnboarding ? guideStep : 0} onOnboardingAdvance={setGuideStep} />
             )}
-            <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 rounded-xl ${guidedOnboarding && guideStep === 7 ? 'ring-2 ring-amber-400 p-1' : ''}`}>
               <button onClick={() => setPoints(0)} disabled={editingModel} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${points === 0 ? 'bg-red-500 text-white' : darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>0 BE</button>
 <input type="number" disabled={editingModel} min="0" max={task?.maxPoints} step="0.5" value={points ?? ''} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setPoints(v); }}
                 className={`w-16 px-2 py-1.5 text-center rounded-lg border font-mono ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`} placeholder="BE" />
@@ -3135,8 +3282,8 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
                 placeholder={`Schüler ${studentIdx + 1} – Name eingeben`} className={`px-3 py-2 rounded-lg border w-56 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`} />
               <div className="flex gap-2">
                 <button onClick={prev} disabled={editingModel || studentIdx === 0} className={`px-4 py-2 rounded-lg disabled:opacity-30 transition-colors ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}><ChevronLeft size={18} /></button>
-                <button onClick={skip} disabled={editingModel} title="Überspringen" className={`px-4 py-2 rounded-lg transition-colors ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}><SkipForward size={18} /></button>
-                <button onClick={next} disabled={editingModel} className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg flex items-center gap-1 font-medium transition-colors">
+                <button onClick={skip} disabled={editingModel} title="Überspringen" aria-label="Aktuelle Bewertung überspringen" className={`px-4 py-2 rounded-lg transition-colors ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}><SkipForward size={18} /></button>
+                <button onClick={next} disabled={editingModel} className={`px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg flex items-center gap-1 font-medium transition-colors ${guidedOnboarding && guideStep === 8 ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-transparent' : ''}`}>
                   {isLastStudent && isLastTask ? 'Abschließen' : 'Weiter'}
                   <ChevronRight size={18} />
                 </button>
@@ -3174,6 +3321,7 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [active, setActive] = useState(null);
   const [dbLoaded, setDbLoaded] = useState(false);
+  const [startSetupWithDemo, setStartSetupWithDemo] = useState(false);
 
   // Load projects from IndexedDB on mount
   useEffect(() => {
@@ -3338,8 +3486,11 @@ export default function App() {
   };
 
   if (view === 'splash') return <SplashScreen onFinish={() => setView('dashboard')} />;
-  if (view === 'dashboard') return <Dashboard darkMode={darkMode} setDarkMode={setDarkMode} projects={projects} onNew={() => setView('setup')} onOpen={handleOpen} onDelete={handleDelete} onImport={handleImport} />;
-  if (view === 'setup') return <SetupWizard darkMode={darkMode} onBack={() => setView('dashboard')} onComplete={async d => { 
+  if (view === 'dashboard') return <Dashboard darkMode={darkMode} setDarkMode={setDarkMode} projects={projects}
+    onNew={() => { setStartSetupWithDemo(false); setView('setup'); }}
+    onDemo={() => { setStartSetupWithDemo(true); setView('setup'); }}
+    onOpen={handleOpen} onDelete={handleDelete} onImport={handleImport} />;
+  if (view === 'setup') return <SetupWizard darkMode={darkMode} startWithDemo={startSetupWithDemo} onBack={() => { setStartSetupWithDemo(false); setView('dashboard'); }} onComplete={async d => {
     const p = { ...d, id: `p_${Date.now()}`, createdAt: Date.now(), progress: 0 };
     // Save PDF data separately
     if (d.pdfArrayBuffer) {
@@ -3348,6 +3499,7 @@ export default function App() {
     const projectMeta = { ...p, pdfArrayBuffer: undefined, pdfData: undefined };
     setProjects(ps => [...ps, projectMeta]);
     setActive(p);
+    setStartSetupWithDemo(false);
     setView('grading');
   }} />;
   if (view === 'grading' && active) return <GradingView darkMode={darkMode} setDarkMode={setDarkMode} project={active} onSave={u => { 
