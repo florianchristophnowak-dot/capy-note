@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { FileUp, ChevronLeft, ChevronRight, Plus, Sun, Moon, Trash2, ZoomIn, ZoomOut, X, Check, Crop, Save, Eye, AlertTriangle, PenTool, Type, Undo2, Table, Edit3, SkipForward, Filter, Eraser, Circle, Download, FileText, Users, Award, BarChart3, CheckCircle2, Clock, Archive, Calendar, PartyPopper, Loader2, Move, AlignCenterVertical, Settings, CircleHelp } from 'lucide-react';
+import { FileUp, ChevronLeft, ChevronRight, Plus, Sun, Moon, Trash2, ZoomIn, ZoomOut, X, Check, Crop, Save, Eye, AlertTriangle, PenTool, Type, Undo2, Table, Edit3, SkipForward, Filter, Eraser, Circle, Download, FileText, Users, Award, BarChart3, CheckCircle2, Clock, Archive, Calendar, PartyPopper, Loader2, Move, AlignCenterVertical, Settings, CircleHelp, Maximize2, Minimize2 } from 'lucide-react';
+import { GuidedTour, tour } from './GuidedTour.jsx';
 
 // ==================== App Version ====================
 const APP_VERSION = '1.2.8';
@@ -146,47 +147,15 @@ function Toast({ message, type = 'success', onClose }) {
   );
 }
 
-// ==================== Guided onboarding ====================
-function OnboardingPanel({ step, total = 8, title, children, onSkip, darkMode, placement = 'bottom-right' }) {
-  const positionClass = placement === 'top-left' ? 'top-24 left-6' : placement === 'top-right' ? 'top-24 right-6' : 'bottom-6 right-6';
-  return (
-    <aside
-      className={`fixed ${positionClass} z-[90] w-[360px] max-w-[calc(100vw-3rem)] rounded-2xl border shadow-2xl ${darkMode ? 'bg-gray-900 border-amber-500/50 text-white' : 'bg-white border-amber-400 text-gray-900'}`}
-      aria-live="polite"
-      aria-label={`Geführte Einführung, Schritt ${step} von ${total}`}
-    >
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">Einführung · {step} von {total}</p>
-            <h2 className="mt-1 font-semibold">{title}</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onSkip}
-            className={`p-1.5 rounded-lg ${darkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
-            title="Einführung beenden"
-            aria-label="Einführung beenden"
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <div className={`mt-2 text-sm leading-relaxed ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{children}</div>
-        <div className={`mt-4 h-1.5 overflow-hidden rounded-full ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>
-          <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${Math.round((step / total) * 100)}%` }} />
-        </div>
-      </div>
-    </aside>
-  );
-}
-
 // ==================== Demo PDF für Vorschau ====================
 const createDemoPdf = (pageCount = 4) => ({
   numPages: pageCount,
   getPage: async (num) => ({
     getViewport: ({ scale }) => ({ width: 595 * scale, height: 842 * scale }),
-    render: ({ canvasContext, viewport }) => {
+    render: ({ canvasContext, viewport, transform }) => {
       const ctx = canvasContext;
+      ctx.save();
+      if (transform) ctx.transform(...transform);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, viewport.width, viewport.height);
       ctx.fillStyle = '#f3f4f6';
@@ -204,7 +173,8 @@ const createDemoPdf = (pageCount = 4) => ({
         ctx.font = `${12 * (viewport.width / 595)}px sans-serif`;
         ctx.fillText(`Aufgabenbereich ${i + 1}`, 50, y + 45);
       }
-      return { promise: Promise.resolve() };
+      ctx.restore();
+      return { promise: Promise.resolve(), cancel() {} };
     }
   })
 });
@@ -262,6 +232,7 @@ const defaultCorrectionMarks = [
   { id: 'acc', symbol: 'Acc', name: 'Akzent', color: '#3b82f6' },
   { id: 'g', symbol: 'G', name: 'Genus', color: '#8b5cf6' },
 ];
+const MAXIMIZED_PREF_KEY = 'capynote.grading.maximized';
 const underlineStyles = [
   { id: 'solid', name: 'Durchgezogen', label: '—' },
   { id: 'dashed', name: 'Gestrichelt', label: '- -' },
@@ -310,7 +281,7 @@ const formatBE = (v) => {
 // ==================== Modal ====================
 function Modal({ children, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose} data-modal>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div className="relative z-10 max-h-[90vh] overflow-auto animate-modal-in" onClick={e => e.stopPropagation()}>{children}</div>
     </div>
@@ -1466,10 +1437,15 @@ const wavyPath = (x1, y1, x2, y1end, amplitude = 0.4, wavelength = 1.2) => {
 };
 
 // ==================== Grading Canvas ====================
-function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotations, onAddAnnotation, onDeleteAnnotation, activeTool, penColor, textColor, textSize, textOpacity, lineWidth, underlineStyle, selectedMark, darkMode, taskPointLabel, scoreLabels, activeRole = 'first' }) {
+function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotations, onAddAnnotation, onDeleteAnnotation, activeTool, penColor, textColor, textSize, textOpacity, lineWidth, underlineStyle, selectedMark, darkMode, taskPointLabel, scoreLabels, activeRole = 'first', maxFit = 2.5 }) {
   const wrapperRef = useRef(null);
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
+  const renderTaskRef = useRef(null);
+  const renderSeqRef = useRef(0);
+  // Verfügbare Fläche: Der Ausschnitt wird neu eingepasst, wenn sie sich ändert
+  // (Fenstergröße, maximiertes Korrekturfeld).
+  const [wrapSize, setWrapSize] = useState({ w: 0, h: 0 });
   const [drawing, setDrawing] = useState(false);
   const [currentStroke, setCurrentStroke] = useState(null);
   const [textPos, setTextPos] = useState(null);
@@ -1529,44 +1505,77 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
   }, [textPos]);
 
   useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let timer = null;
+    const update = () => {
+      const w = Math.round(el.clientWidth), h = Math.round(el.clientHeight);
+      setWrapSize(s => (s.w === w && s.h === h ? s : { w, h }));
+    };
+    update();
+    const ro = new ResizeObserver(() => { clearTimeout(timer); timer = setTimeout(update, 80); });
+    ro.observe(el);
+    return () => { clearTimeout(timer); ro.disconnect(); };
+  }, []);
+
+  useEffect(() => {
     if (!pdfDoc || !canvasRef.current) return;
+    const seq = ++renderSeqRef.current;
+    let cancelled = false;
     (async () => {
       try {
         const page = await pdfDoc.getPage(pageNumber);
+        if (cancelled) return;
         const canvas = canvasRef.current;
         const wrapper = wrapperRef.current;
-        
+        if (!canvas) return;
+        // Schärfe auf hochauflösenden Bildschirmen: in Gerätepixeln rendern, in CSS-Pixeln anzeigen.
+        const dpr = Math.min(window.devicePixelRatio || 1, 3);
+        const base = page.getViewport({ scale: 1 });
+        let cssW, cssH, renderScale, offX = 0, offY = 0;
+
         if (isCropped && region) {
-          const hiRes = 3;
-          const vp = page.getViewport({ scale: hiRes });
-          const temp = document.createElement('canvas');
-          temp.width = vp.width; temp.height = vp.height;
-          const tctx = temp.getContext('2d');
-          tctx.fillStyle = '#fff';
-          tctx.fillRect(0, 0, temp.width, temp.height);
-          await page.render({ canvasContext: tctx, viewport: vp }).promise;
-
-          const cx = (region.x / 100) * vp.width, cy = (region.y / 100) * vp.height;
-          const cw = (region.width / 100) * vp.width, ch = (region.height / 100) * vp.height;
-
+          const cwPt = (region.width / 100) * base.width;
+          const chPt = (region.height / 100) * base.height;
           const availW = wrapper?.clientWidth || 600;
           const availH = wrapper?.clientHeight || 400;
-          const fitScale = Math.min((availW - 40) / (cw / hiRes), (availH - 40) / (ch / hiRes), 2.5) * scale;
-
-          canvas.width = (cw / hiRes) * fitScale;
-          canvas.height = (ch / hiRes) * fitScale;
-          canvas.getContext('2d').drawImage(temp, cx, cy, cw, ch, 0, 0, canvas.width, canvas.height);
+          const fitScale = Math.max(0.1, Math.min((availW - 40) / cwPt, (availH - 40) / chPt, maxFit)) * scale;
+          cssW = cwPt * fitScale;
+          cssH = chPt * fitScale;
+          renderScale = fitScale * dpr;
+          offX = (region.x / 100) * base.width * renderScale;
+          offY = (region.y / 100) * base.height * renderScale;
         } else {
-          const vp = page.getViewport({ scale });
-          canvas.width = vp.width; canvas.height = vp.height;
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#fff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          await page.render({ canvasContext: ctx, viewport: vp }).promise;
+          cssW = base.width * scale;
+          cssH = base.height * scale;
+          renderScale = scale * dpr;
         }
-      } catch (e) { console.error(e); }
+
+        // Nur den sichtbaren Bereich rendern (statt der ganzen Seite in dreifacher Größe)
+        // und erst nach Abschluss tauschen, damit überholte Renderläufe nichts überschreiben.
+        const vp = page.getViewport({ scale: renderScale });
+        const off = document.createElement('canvas');
+        off.width = Math.max(1, Math.round(cssW * dpr));
+        off.height = Math.max(1, Math.round(cssH * dpr));
+        const octx = off.getContext('2d');
+        octx.fillStyle = '#fff';
+        octx.fillRect(0, 0, off.width, off.height);
+        try { renderTaskRef.current?.cancel?.(); } catch { /* ignore */ }
+        const task = page.render({ canvasContext: octx, viewport: vp, transform: (offX || offY) ? [1, 0, 0, 1, -offX, -offY] : undefined });
+        renderTaskRef.current = task;
+        await task.promise;
+        if (cancelled || seq !== renderSeqRef.current) return;
+        canvas.width = off.width;
+        canvas.height = off.height;
+        canvas.style.width = `${cssW}px`;
+        canvas.style.height = `${cssH}px`;
+        canvas.getContext('2d').drawImage(off, 0, 0);
+      } catch (e) {
+        if (e?.name !== 'RenderingCancelledException') console.error(e);
+      }
     })();
-  }, [pdfDoc, pageNumber, scale, region, isCropped]);
+    return () => { cancelled = true; };
+  }, [pdfDoc, pageNumber, scale, region, isCropped, maxFit, wrapSize.w, wrapSize.h]);
 
   const getCoords = useCallback((e) => {
     const r = containerRef.current?.getBoundingClientRect();
@@ -1718,7 +1727,7 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
 
   return (
     <div ref={wrapperRef} className="w-full h-full flex items-center justify-center">
-      <div ref={containerRef} className={`relative select-none touch-none ${activeTool ? 'cursor-crosshair' : ''}`}
+      <div ref={containerRef} data-tour="grading-canvas" className={`relative select-none touch-none ${activeTool ? 'cursor-crosshair' : ''}`}
         onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd}
         onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd}>
         <canvas ref={canvasRef} className="shadow-xl rounded-lg block" />
@@ -1916,7 +1925,7 @@ function GradingCanvas({ pdfDoc, pageNumber, scale, region, isCropped, annotatio
 }
 
 // ==================== Annotation Toolbar ====================
-function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, textColor, setTextColor, textSize, setTextSize, textOpacity, setTextOpacity, lineWidth, setLineWidth, underlineStyle, setUnderlineStyle, correctionMarks, selectedMark, setSelectedMark, onUndo, canUndo, darkMode, onboardingStep = 0, onOnboardingAdvance }) {
+function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, textColor, setTextColor, textSize, setTextSize, textOpacity, setTextOpacity, lineWidth, setLineWidth, underlineStyle, setUnderlineStyle, correctionMarks, selectedMark, setSelectedMark, onUndo, canUndo, darkMode, defaultTop = 96 }) {
   const [showSize, setShowSize] = useState(false);
   const [showTextStyle, setShowTextStyle] = useState(false);
 
@@ -1931,6 +1940,7 @@ function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, t
   const dragRef = useRef(null); // { startX, startY, origLeft, origTop }
   const barRef = useRef(null);
   const initializedRef = useRef(false);
+  const movedRef = useRef(false); // vom Benutzer verschoben → nicht mehr automatisch umsetzen
 
   const clampToViewport = useCallback((left, top) => {
     const bar = barRef.current;
@@ -1952,18 +1962,27 @@ function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, t
     const bar = barRef.current;
     const rect = bar?.getBoundingClientRect();
     const bw = rect?.width ?? 360;
-    const top = 96; // below header
     const left = Math.round((window.innerWidth - bw) / 2);
-    return clampToViewport(left, top);
-  }, [clampToViewport]);
+    return clampToViewport(left, defaultTop);
+  }, [clampToViewport, defaultTop]);
+
+  // Aktuelle Fassung für den verzögerten Aufruf unten (defaultTop kann sich inzwischen geändert haben).
+  const computeDefaultPosRef = useRef(computeDefaultPos);
+  computeDefaultPosRef.current = computeDefaultPos;
 
   useEffect(() => {
     if (initializedRef.current) return;
     initializedRef.current = true;
     // Wait one frame so the toolbar is measured
     requestAnimationFrame(() => {
-      setPos(computeDefaultPos());
+      if (!movedRef.current) setPos(computeDefaultPosRef.current());
     });
+  }, [computeDefaultPos]);
+
+  // Standardposition folgt dem Layout (z. B. maximiertes Korrekturfeld ohne Kopfbereich).
+  useEffect(() => {
+    if (!initializedRef.current || movedRef.current) return;
+    setPos(computeDefaultPos());
   }, [computeDefaultPos]);
 
   useEffect(() => {
@@ -1998,6 +2017,7 @@ function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, t
     const cx = e.touches?.[0]?.clientX ?? e.clientX;
     const cy = e.touches?.[0]?.clientY ?? e.clientY;
     dragRef.current = { startX: cx, startY: cy, origLeft: pos.left, origTop: pos.top };
+    movedRef.current = true;
 
     const handleMove = (ev) => {
       if (!dragRef.current) return;
@@ -2022,7 +2042,7 @@ function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, t
     window.addEventListener('touchend', handleUp);
   };
 
-  const resetPosition = () => setPos(computeDefaultPos());
+  const resetPosition = () => { movedRef.current = false; setPos(computeDefaultPos()); };
 
   // Toggle: clicking an already active tool deactivates it
   const toggle = (tool, extra) => {
@@ -2037,6 +2057,7 @@ function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, t
       style={{ left: `${pos.left}px`, top: `${pos.top}px`, touchAction: 'none' }}
       role="toolbar"
       aria-label="Korrekturwerkzeuge"
+      data-tour-avoid
     >
       {/* Drag handle */}
       <div
@@ -2052,7 +2073,7 @@ function AnnotationToolbar({ activeTool, setActiveTool, penColor, setPenColor, t
       </div>
 
       <div className={`flex gap-1 pr-2 border-r ${darkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-        <button onClick={() => { toggle('pen', penColor !== '#ef4444'); setPenColor('#ef4444'); if (onboardingStep === 5) onOnboardingAdvance?.(6); }} title="Rotstift" aria-label="Rotstift" aria-pressed={activeTool === 'pen' && penColor === '#ef4444'} className={`p-2 rounded-lg transition-colors ${activeTool === 'pen' && penColor === '#ef4444' ? 'bg-red-500/30 ring-2 ring-red-500' : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'} ${onboardingStep === 5 ? 'ring-2 ring-amber-400 animate-pulse' : ''}`}><PenTool size={18} className="text-red-500" /></button>
+        <button data-tour="red-pen" onClick={() => { toggle('pen', penColor !== '#ef4444'); setPenColor('#ef4444'); }} title="Rotstift" aria-label="Rotstift" aria-pressed={activeTool === 'pen' && penColor === '#ef4444'} className={`p-2 rounded-lg transition-colors ${activeTool === 'pen' && penColor === '#ef4444' ? 'bg-red-500/30 ring-2 ring-red-500' : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><PenTool size={18} className="text-red-500" /></button>
         <button onClick={() => { toggle('pen', penColor !== '#22c55e'); setPenColor('#22c55e'); }} title="Grünstift" aria-label="Grünstift" aria-pressed={activeTool === 'pen' && penColor === '#22c55e'} className={`p-2 rounded-lg transition-colors ${activeTool === 'pen' && penColor === '#22c55e' ? 'bg-green-500/30 ring-2 ring-green-500' : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><PenTool size={18} className="text-green-500" /></button>
         <div className="relative">
           <button onClick={() => setShowSize(!showSize)} title="Stift-/Unterstreichungsgröße" className={`p-2 rounded-lg ${showSize ? (darkMode ? 'bg-gray-700' : 'bg-gray-300') : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><Circle size={16} /></button>
@@ -2272,7 +2293,10 @@ function Dashboard({ darkMode, setDarkMode, projects, onNew, onDemo, onOpen, onD
               <div key={p.id} className={`p-5 rounded-xl border transition-colors ${darkMode ? 'border-gray-800 bg-gray-900 hover:border-gray-700' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                 <div className="flex justify-between">
                   <div className="flex-1 cursor-pointer" onClick={() => onOpen(p)}>
-                    <h3 className="font-semibold text-lg hover:text-amber-500 transition-colors">{p.title}</h3>
+                    <h3 className="font-semibold text-lg hover:text-amber-500 transition-colors">
+                      {p.title}
+                      {p.isDemo && <span className={`ml-2 align-middle text-xs font-medium px-2 py-0.5 rounded-full ${darkMode ? 'bg-gray-800 text-gray-400' : 'bg-gray-200 text-gray-600'}`}>Demo</span>}
+                    </h3>
                     <div className="flex items-center gap-3 mt-1">
                       <span className={`text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>{p.subject} • {p.level} • {p.studentCount} Schüler</span>
                       {p.deleteDate && (
@@ -2323,8 +2347,7 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
   const [scoreFields, setScoreFields] = useState({ totalField: null, gradeField: null });
   const [allowSecondViewFirst, setAllowSecondViewFirst] = useState(false);
   const [toast, setToast] = useState(null);
-  const [guidedOnboarding, setGuidedOnboarding] = useState(startWithDemo);
-  const [guideStep, setGuideStep] = useState(startWithDemo ? 1 : 0);
+  const [isDemo, setIsDemo] = useState(false);
   const fileRef = useRef(null);
   const demoStartedRef = useRef(false);
 
@@ -2350,11 +2373,10 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
   const startDemo = (guided = false) => {
     const demo = createDemoPdf(8);
     setPdfFile({ name: 'Demo.pdf' }); setPdfDoc(demo); setPdfArrayBuffer(null); setPageCount(8); setTitle('Demo-Klassenarbeit'); setLevel('Demo-Klasse'); setStep(2);
-    if (guided) {
-      setGuidedOnboarding(true);
-      setGuideStep(1);
-    }
+    setIsDemo(true);
+    if (guided) tour.start();
   };
+  const tourSignal = (event) => { if (isDemo) tour.signal(event); };
 
   useEffect(() => {
     if (!startWithDemo || demoStartedRef.current) return;
@@ -2365,17 +2387,17 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
   const saveTask = (data) => {
     setTasks([...tasks, { id: `t_${Date.now()}`, ...data, page: pendingRegion.page, region: pendingRegion }]);
     setPendingRegion(null);
-    if (guidedOnboarding) setGuideStep(4);
+    tourSignal('setup:task-created');
+  };
+
+  const cancelTask = () => {
+    setPendingRegion(null);
+    tourSignal('setup:select-cancel');
   };
 
   const openTaskSetup = () => {
     setStep(3);
-    if (guidedOnboarding) setGuideStep(2);
-  };
-
-  const stopOnboarding = () => {
-    setGuidedOnboarding(false);
-    setGuideStep(0);
+    tourSignal('setup:tasks-view');
   };
 
   const finish = () => {
@@ -2386,7 +2408,7 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
       pdfName: pdfFile.name, pageCount, studentCount, tasks, students, 
       pdfArrayBuffer, scoreFields, allowSecondViewFirst,
       modelSolutions: {}, modelSolutionOpacity: defaultModelOpacity,
-      guidedOnboarding: guidedOnboarding ? { active: true, step: 5 } : null,
+      isDemo,
       resumeTask: 0, resumeStudent: 0 
     });
   };
@@ -2422,11 +2444,7 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
   if (step === 2) return (
     <div className={`min-h-screen flex flex-col ${darkMode ? 'bg-gray-950 text-white' : 'bg-gray-100 text-gray-900'}`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      {guidedOnboarding && guideStep === 1 && (
-        <OnboardingPanel step={1} title="Seitenaufteilung prüfen" onSkip={stopOnboarding} darkMode={darkMode} placement="top-right">
-          Capy-note teilt das Klassen-PDF anhand der Seitenzahl pro Schüler auf. Prüfen Sie die berechnete Schülerzahl und klicken Sie anschließend auf „Weiter“.
-        </OnboardingPanel>
-      )}
+      <GuidedTour view="setup-settings" enabled={isDemo} darkMode={darkMode} />
       {showGradeEditor && <GradeTableEditor gradeTable={gradeTable} onChange={setGradeTable} onClose={() => setShowGradeEditor(false)} darkMode={darkMode} />}
       {showMarksEditor && <CorrectionMarksEditor marks={correctionMarks} onChange={setCorrectionMarks} onClose={() => setShowMarksEditor(false)} darkMode={darkMode} />}
       <header className={`border-b ${darkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
@@ -2453,7 +2471,7 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
           <div><label className="block text-sm mb-1 font-medium">Seiten pro Schüler</label><select value={pagesPerStudent} onChange={e => setPagesPerStudent(+e.target.value)} className={`w-full px-4 py-2 rounded border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`}>
             {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n} {n === 1 ? 'Seite' : 'Seiten'}</option>)}
           </select></div>
-          <div className={`p-3 rounded-lg ${darkMode ? 'bg-amber-900/30 border border-amber-700' : 'bg-amber-50 border border-amber-300'}`}>
+          <div data-tour="setup-student-count" className={`p-3 rounded-lg ${darkMode ? 'bg-amber-900/30 border border-amber-700' : 'bg-amber-50 border border-amber-300'}`}>
             <p className="text-amber-600 font-medium">{pageCount} Seiten ÷ {pagesPerStudent} Seiten/Schüler = <strong>{studentCount} Schüler</strong></p>
             {pageCount % pagesPerStudent !== 0 && <p className="text-amber-500 text-sm mt-1">⚠ Nicht gleichmäßig teilbar – bitte Seitenanzahl überprüfen</p>}
           </div>
@@ -2478,7 +2496,7 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
         </div>
         <div className="flex justify-between">
           <button onClick={() => setStep(1)} className={`px-6 py-2 rounded-xl ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>Zurück</button>
-          <button onClick={openTaskSetup} disabled={!title || !level} className={`px-6 py-2 bg-amber-600 text-white rounded-xl disabled:opacity-50 font-medium ${guidedOnboarding && guideStep === 1 ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-transparent' : ''}`}>Weiter</button>
+          <button data-tour="setup-next" onClick={openTaskSetup} disabled={!title || !level} className="px-6 py-2 bg-amber-600 text-white rounded-xl disabled:opacity-50 font-medium">Weiter</button>
         </div>
       </main>
       <Footer darkMode={darkMode} />
@@ -2488,22 +2506,8 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
   return (
     <div className={`min-h-screen flex flex-col ${darkMode ? 'bg-gray-950 text-white' : 'bg-gray-100 text-gray-900'}`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      {pendingRegion && pendingRegion.type === 'task' && <TaskDialog count={tasks.length} onSave={saveTask} onCancel={() => setPendingRegion(null)} darkMode={darkMode} />}
-      {guidedOnboarding && guideStep === 2 && (
-        <OnboardingPanel step={2} title="Aufgabenbereich auswählen" onSkip={stopOnboarding} darkMode={darkMode}>
-          Klicken Sie auf „Aufgabenbereich hinzufügen“. Anschließend markieren Sie den zu korrigierenden Ausschnitt direkt auf der PDF-Seite.
-        </OnboardingPanel>
-      )}
-      {guidedOnboarding && guideStep === 3 && (
-        <OnboardingPanel step={3} title="Bereich auf der PDF markieren" onSkip={stopOnboarding} darkMode={darkMode}>
-          Ziehen Sie ein Rechteck über einen Aufgabenbereich. Danach vergeben Sie einen Namen und die maximale Punktzahl für diese Aufgabe.
-        </OnboardingPanel>
-      )}
-      {guidedOnboarding && guideStep === 4 && (
-        <OnboardingPanel step={4} title="Ergebnisfelder festlegen" onSkip={stopOnboarding} darkMode={darkMode}>
-          Gesamtpunktzahl und Note werden getrennt markiert. Beide Felder sind optional. Klicken Sie anschließend oben auf „Korrektur starten“.
-        </OnboardingPanel>
-      )}
+      {pendingRegion && pendingRegion.type === 'task' && <TaskDialog count={tasks.length} onSave={saveTask} onCancel={cancelTask} darkMode={darkMode} />}
+      <GuidedTour view="setup-tasks" enabled={isDemo} darkMode={darkMode} />
       <header className={`border-b flex-shrink-0 ${darkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
         <div className="px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
@@ -2513,7 +2517,7 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
               <p className={`text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>Schritt 3 von 3: Markieren Sie Bereiche auf Seite 1-{pagesPerStudent} eines Schülers</p>
             </div>
           </div>
-          <button onClick={finish} disabled={!tasks.length} className={`px-6 py-2 bg-amber-600 text-white rounded-xl disabled:opacity-50 font-medium ${guidedOnboarding && guideStep === 4 ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-transparent' : ''}`}>
+          <button data-tour="start-grading" onClick={finish} disabled={!tasks.length} className="px-6 py-2 bg-amber-600 text-white rounded-xl disabled:opacity-50 font-medium">
             Korrektur starten ({tasks.length} {tasks.length === 1 ? 'Aufgabe' : 'Aufgaben'})
           </button>
         </div>
@@ -2521,13 +2525,13 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
       <div className="flex-1 flex overflow-hidden">
         <div className={`w-72 border-r overflow-y-auto p-4 ${darkMode ? 'border-gray-800 bg-gray-900/50' : 'border-gray-200 bg-white'}`}>
           <div className="mb-6">
-            <div className="flex justify-between items-center mb-3">
+            <div className="mb-3">
               <span className="font-medium">Aufgaben</span>
-              <button onClick={() => { setSelectionMode('task'); if (guidedOnboarding) setGuideStep(3); }} disabled={selectionMode}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${selectionMode === 'task' ? 'bg-blue-600 text-white' : 'bg-amber-600 text-white'} disabled:opacity-50 ${guidedOnboarding && guideStep === 2 ? 'ring-2 ring-amber-300' : ''}`}>
-                <Crop size={14} className="inline mr-1" />Aufgabenbereich hinzufügen
-              </button>
             </div>
+            <button data-tour="add-task" onClick={() => { setSelectionMode('task'); tourSignal('setup:select-task'); }} disabled={selectionMode}
+              className={`w-full mb-3 px-3 py-2 rounded-lg text-sm font-medium inline-flex items-center justify-center gap-1.5 ${selectionMode === 'task' ? 'bg-blue-600 text-white' : 'bg-amber-600 hover:bg-amber-500 text-white'} disabled:opacity-50`}>
+              <Crop size={14} />Aufgabenbereich hinzufügen
+            </button>
             {selectionMode === 'task' && <div className={`p-3 mb-3 rounded-lg text-sm ${darkMode ? 'bg-blue-900/30 border border-blue-700 text-blue-400' : 'bg-blue-100 border border-blue-300 text-blue-700'}`}>👆 Ziehen Sie ein Rechteck über den Aufgabenbereich</div>}
             {tasks.length === 0 && !selectionMode && (
               <div className={`p-4 rounded-lg text-sm text-center ${darkMode ? 'bg-gray-800 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
@@ -2544,7 +2548,7 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
             ))}
           </div>
           
-          <div className={`pt-4 border-t ${guidedOnboarding && guideStep === 4 ? 'ring-2 ring-amber-400 rounded-xl p-3 -mx-3' : ''} ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+          <div data-tour="result-fields" className={`pt-4 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
             <div className="mb-3">
               <span className="font-medium">Ergebnisfelder</span>
               <span className={`ml-2 text-xs ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>(optional)</span>
@@ -2617,11 +2621,12 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
               <span className="w-12 text-center text-sm">{Math.round(zoom * 100)}%</span>
               <button onClick={() => setZoom(z => Math.min(2, z + 0.2))} className={`p-1 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><ZoomIn size={18} /></button>
             </div>
-            {selectionMode && <button onClick={() => setSelectionMode(null)} className={`px-3 py-1.5 rounded-lg text-sm ml-4 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-300 hover:bg-gray-400'}`}><X size={14} className="inline mr-1" />Abbrechen</button>}
+            {selectionMode && <button onClick={() => { if (selectionMode === 'task') tourSignal('setup:select-cancel'); setSelectionMode(null); }} className={`px-3 py-1.5 rounded-lg text-sm ml-4 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-300 hover:bg-gray-400'}`}><X size={14} className="inline mr-1" />Abbrechen</button>}
           </div>
           <div className={`flex-1 overflow-auto p-6 ${darkMode ? 'bg-gray-950' : 'bg-gray-200'}`}>
             <div className="flex justify-center">
               {pdfDoc && (
+                <div data-tour="pdf-page" className="inline-block">
                 <PDFPageView pdfDoc={pdfDoc} pageNumber={currentPage} scale={zoom}
                   regions={[
                     ...tasks.filter(t => t.page === currentPage).map(t => ({ ...t.region, name: t.name, color: 'amber' })),
@@ -2637,6 +2642,7 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
                     }
                     setSelectionMode(null);
                   }} />
+                </div>
               )}
             </div>
           </div>
@@ -2893,8 +2899,23 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
   const [modelOpacity, setModelOpacity] = useState(project.modelSolutionOpacity ?? defaultModelOpacity);
   const [editingModel, setEditingModel] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
-  const [guidedOnboarding, setGuidedOnboarding] = useState(!!project.guidedOnboarding?.active);
-  const [guideStep, setGuideStep] = useState(project.guidedOnboarding?.step || 0);
+  // Maximiertes Korrekturfeld: Kopfbereich, Seitenleisten und Fußzeile ausblenden.
+  // Die Wahl gilt geräteweit, damit sie beim nächsten Öffnen erhalten bleibt.
+  const [maximized, setMaximized] = useState(() => {
+    // Die Einführung zeigt Kopfbereich und Seitenleisten; sie beginnt daher immer unmaximiert.
+    if (project.isDemo && tour.getSnapshot().active) return false;
+    try { return window.localStorage.getItem(MAXIMIZED_PREF_KEY) === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(MAXIMIZED_PREF_KEY, maximized ? '1' : '0'); } catch { /* ignore */ }
+  }, [maximized]);
+  const toggleMaximized = () => setMaximized(m => !m);
+  // Die schwebende Werkzeugleiste liegt standardmäßig oben im Korrekturfeld, damit sie weder
+  // Kopfbereich noch Zoom- und Punkte-Knöpfe verdeckt.
+  const canvasAreaRef = useRef(null);
+  const [toolbarTop, setToolbarTop] = useState(96);
+  // Die Einführung läuft nur im Demo-Projekt.
+  const tourSignal = (event) => { if (project.isDemo) tour.signal(event); };
 
   const task = tasks[taskIdx];
   const student = students[studentIdx];
@@ -2986,6 +3007,41 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
     if (!canViewOtherLayer) setShowOtherLayer(false);
   }, [canViewOtherLayer]);
 
+  // Einführung: Korrekturansicht geöffnet bzw. Rotstift gewählt
+  useEffect(() => { tourSignal('grading:open'); }, [project.id]);
+  useEffect(() => {
+    if (activeTool === 'pen' && penColor === '#ef4444') tourSignal('grading:pen-selected');
+  }, [activeTool, penColor]);
+
+  useEffect(() => {
+    const measure = () => {
+      const r = canvasAreaRef.current?.getBoundingClientRect();
+      if (r) setToolbarTop(Math.round(r.top) + 8);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [maximized, loading]);
+
+  // Tastenkürzel: F schaltet das maximierte Korrekturfeld um, Esc verlässt es.
+  // Nicht beim Tippen in Eingabefeldern und nicht, solange ein Dialog offen ist.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isOverlayOpen) return;
+      const t = e.target;
+      if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        setMaximized(m => !m);
+      } else if (e.key === 'Escape' && maximized) {
+        e.preventDefault();
+        setMaximized(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOverlayOpen, maximized]);
+
   const setPoints = (p) => {
     setStudents(s => {
       const u = [...s];
@@ -2995,7 +3051,7 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
       if (u[studentIdx].pending) u[studentIdx].pending = u[studentIdx].pending.filter(id => id !== task.id);
       return u;
     });
-    if (guidedOnboarding && guideStep === 7) setGuideStep(8);
+    tourSignal('grading:points-set');
   };
 
   const addAnn = (a) => {
@@ -3006,7 +3062,7 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
       u[studentIdx].annotations[task.id] = [...u[studentIdx].annotations[task.id], { ...a, role }];
       return u;
     });
-    if (guidedOnboarding && guideStep === 6) setGuideStep(7);
+    tourSignal('grading:annotation-added');
   };
   const delAnn = (a) => setStudents(s => {
     const u = [...s];
@@ -3054,11 +3110,7 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
   const isLastTask = taskIdx >= tasks.length - 1;
 
   const next = () => {
-    if (guidedOnboarding && guideStep === 8) {
-      setGuidedOnboarding(false);
-      setGuideStep(0);
-      setToast({ message: 'Einführung abgeschlossen – Sie können jetzt selbstständig weiterkorrigieren.', type: 'success' });
-    }
+    tourSignal('grading:next');
     if (!isLastStudent) {
       setStudentIdx(i => i + 1);
     } else if (!isLastTask) {
@@ -3079,7 +3131,7 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
 
   const save = async (auto = false) => {
     setSaving(true);
-    const projectData = { ...project, correctionRole: role, allowSecondViewFirst: !!project.allowSecondViewFirst, students, tasks, gradeTable, resumeTask: taskIdx, resumeStudent: studentIdx, scoreFields, taskPointPositions, modelSolutions, modelSolutionOpacity: modelOpacity, guidedOnboarding: guidedOnboarding ? { active: true, step: guideStep } : null };
+    const projectData = { ...project, correctionRole: role, allowSecondViewFirst: !!project.allowSecondViewFirst, students, tasks, gradeTable, resumeTask: taskIdx, resumeStudent: studentIdx, scoreFields, taskPointPositions, modelSolutions, modelSolutionOpacity: modelOpacity };
     if (role === 'second') projectData.progressSecond = progress;
     else projectData.progress = progress;
     try {
@@ -3108,29 +3160,45 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
   if (loading) return <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-gray-950' : 'bg-gray-100'}`}><div className="text-center"><div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" /><p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>PDF wird geladen...</p></div></div>;
   if (!pdfDoc) return <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-gray-950 text-white' : 'bg-gray-100 text-gray-900'}`}><AlertTriangle size={48} className="text-red-500 mr-4" /><span>PDF konnte nicht geladen werden</span></div>;
 
+  const isPending = !!student?.pending?.includes(task?.id);
+  const studentLabel = editingModel ? 'Musterlösung' : (student?.name || `Schüler ${studentIdx + 1}`);
+
+  const pointsControls = (
+    <div data-tour="points" className="flex items-center gap-2">
+      <button onClick={() => setPoints(0)} disabled={editingModel} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${points === 0 ? 'bg-red-500 text-white' : darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>0 BE</button>
+      <input type="number" disabled={editingModel} min="0" max={task?.maxPoints} step="0.5" value={points ?? ''} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setPoints(v); }}
+        className={`w-16 px-2 py-1.5 text-center rounded-lg border font-mono ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`} placeholder="BE" aria-label="Bewertungseinheiten" />
+      <span className={`text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>/{task?.maxPoints}</span>
+      <button onClick={() => setPoints(task?.maxPoints)} disabled={editingModel} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${points === task?.maxPoints ? 'bg-green-500 text-white' : darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>volle BE</button>
+    </div>
+  );
+
+  const zoomControls = (
+    <div className="flex items-center gap-1">
+      <button onClick={() => setZoom(z => Math.max(0.5, z - 0.2))} className={`p-1 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`} title="Verkleinern" aria-label="Ansicht verkleinern"><ZoomOut size={18} /></button>
+      <span className="w-12 text-center text-sm">{Math.round(zoom * 100)}%</span>
+      <button onClick={() => setZoom(z => Math.min(2.5, z + 0.2))} className={`p-1 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`} title="Vergrößern" aria-label="Ansicht vergrößern"><ZoomIn size={18} /></button>
+    </div>
+  );
+
+  const navButtons = (
+    <div className="flex gap-2">
+      <button onClick={prev} disabled={editingModel || studentIdx === 0} title="Vorherige Schülerarbeit" aria-label="Vorherige Schülerarbeit" className={`px-4 py-2 rounded-lg disabled:opacity-30 transition-colors ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}><ChevronLeft size={18} /></button>
+      <button onClick={skip} disabled={editingModel} title="Überspringen" aria-label="Aktuelle Bewertung überspringen" className={`px-4 py-2 rounded-lg transition-colors ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}><SkipForward size={18} /></button>
+      <button data-tour="next-student" onClick={next} disabled={editingModel} className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg flex items-center gap-1 font-medium transition-colors">
+        {isLastStudent && isLastTask ? 'Abschließen' : 'Weiter'}
+        <ChevronRight size={18} />
+      </button>
+    </div>
+  );
+
+  const divider = <div className={`w-px h-8 ${darkMode ? 'bg-gray-700' : 'bg-gray-300'}`} />;
+
   return (
-    <div className={`min-h-screen flex flex-col ${darkMode ? 'bg-gray-950 text-white' : 'bg-gray-100 text-gray-900'}`}>
+    <div className={`${maximized ? 'h-screen overflow-hidden' : 'min-h-screen'} flex flex-col ${darkMode ? 'bg-gray-950 text-white' : 'bg-gray-100 text-gray-900'}`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      {guidedOnboarding && guideStep === 5 && (
-        <OnboardingPanel step={5} title="Rotstift auswählen" onSkip={() => { setGuidedOnboarding(false); setGuideStep(0); }} darkMode={darkMode}>
-          Wählen Sie den hervorgehobenen Rotstift in der Werkzeugleiste. Die Symbole bleiben bewusst kompakt; beim Darüberfahren zeigt Capy-note ihre Bedeutung an.
-        </OnboardingPanel>
-      )}
-      {guidedOnboarding && guideStep === 6 && (
-        <OnboardingPanel step={6} title="Direkt auf der Arbeit schreiben" onSkip={() => { setGuidedOnboarding(false); setGuideStep(0); }} darkMode={darkMode}>
-          Ziehen Sie mit gedrückter Maustaste eine kurze Markierung auf die Arbeit. Ein erneuter Klick auf den Rotstift deaktiviert das Werkzeug.
-        </OnboardingPanel>
-      )}
-      {guidedOnboarding && guideStep === 7 && (
-        <OnboardingPanel step={7} title="Punkte vergeben" onSkip={() => { setGuidedOnboarding(false); setGuideStep(0); }} darkMode={darkMode}>
-          Vergeben Sie nun 0 BE, die volle Punktzahl oder einen eigenen Wert im Eingabefeld.
-        </OnboardingPanel>
-      )}
-      {guidedOnboarding && guideStep === 8 && (
-        <OnboardingPanel step={8} title="Zum nächsten Schüler wechseln" onSkip={() => { setGuidedOnboarding(false); setGuideStep(0); }} darkMode={darkMode} placement="top-left">
-          Klicken Sie auf „Weiter“. Capy-note arbeitet anschließend aufgabenweise durch alle Schülerarbeiten.
-        </OnboardingPanel>
-      )}
+      <GuidedTour view="grading" enabled={!!project.isDemo} darkMode={darkMode}
+        onFinish={() => setToast({ message: 'Einführung abgeschlossen – viel Erfolg beim Korrigieren!', type: 'success' })} />
       {showGradeEditor && <GradeTableEditor gradeTable={gradeTable} onChange={setGradeTable} onClose={() => setShowGradeEditor(false)} darkMode={darkMode} />}
       {editingTask && <TaskEditor task={editingTask} onSave={t => { setTasks(ts => ts.map(x => x.id === t.id ? t : x)); }} onClose={() => setEditingTask(null)} darkMode={darkMode} />}
       {showReview && <ReviewModal students={students} tasks={tasks} currentTaskId={task?.id} pointsKey={pointsKey} onClose={() => setShowReview(false)} onSelectStudent={setStudentIdx} darkMode={darkMode} />}
@@ -3145,171 +3213,195 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack }) {
         onSaveScoreFields={setScoreFields} onSaveTaskPointPositions={setTaskPointPositions}
         onClose={() => setShowFieldEditor(false)} darkMode={darkMode} />}
 
-      <header className={`border-b flex-shrink-0 ${darkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-        <div className="px-4 py-3 flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <button onClick={() => { save(); onBack(); }} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Zurück zum Dashboard"><ChevronLeft size={20} /></button>
-            <div>
-              <h1 className="font-semibold">{project.title}</h1>
-              <div className="flex items-center gap-3">
-                <p className={`text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>
-                  <span className="text-amber-500 font-medium">{task?.name}</span> • Schüler {studentIdx + 1}/{students.length}
-                </p>
-                <span className={`text-xs px-2 py-0.5 rounded-full border ${role === 'second'
-                  ? 'border-green-500/40 bg-green-500/15 text-green-400'
-                  : 'border-red-500/40 bg-red-500/15 text-red-400'}`}
-                >{role === 'second' ? 'Zweitkorrektur' : 'Erstkorrektur'}</span>
-                {/* Mini progress bar */}
-                <div className={`w-24 h-1.5 rounded-full ${darkMode ? 'bg-gray-700' : 'bg-gray-300'}`}>
-                  <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${progress}%` }} />
+      {!maximized && (
+        <header className={`border-b flex-shrink-0 ${darkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+          <div className="px-4 py-3 flex justify-between items-center">
+            <div className="flex items-center gap-4">
+              <button onClick={() => { save(); onBack(); }} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Zurück zum Dashboard"><ChevronLeft size={20} /></button>
+              <div>
+                <h1 className="font-semibold">{project.title}</h1>
+                <div className="flex items-center gap-3">
+                  <p className={`text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>
+                    <span className="text-amber-500 font-medium">{task?.name}</span> • Schüler {studentIdx + 1}/{students.length}
+                  </p>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${role === 'second'
+                    ? 'border-green-500/40 bg-green-500/15 text-green-400'
+                    : 'border-red-500/40 bg-red-500/15 text-red-400'}`}
+                  >{role === 'second' ? 'Zweitkorrektur' : 'Erstkorrektur'}</span>
+                  {/* Mini progress bar */}
+                  <div className={`w-24 h-1.5 rounded-full ${darkMode ? 'bg-gray-700' : 'bg-gray-300'}`}>
+                    <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                  </div>
+                  <span className="text-xs text-amber-500">{progress}%</span>
                 </div>
-                <span className="text-xs text-amber-500">{progress}%</span>
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowReview(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Review"><Filter size={18} /></button>
-            <button onClick={() => setShowResults(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Ergebnisse & Export"><Award size={18} /></button>
+            <div className="flex items-center gap-2">
+              <button data-tour="review" onClick={() => setShowReview(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Review"><Filter size={18} /></button>
+              <button data-tour="results" onClick={() => setShowResults(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Ergebnisse & Export"><Award size={18} /></button>
 
-            {/* Musterlösung (Model Solution) */}
-            <button
-              onClick={() => setShowModelSolution(v => !v)}
-              disabled={!modelExists && !editingModel}
-              className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${showModelSolution ? 'bg-slate-500/20 text-slate-300' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}
-              title={showModelSolution ? 'Musterlösung ausblenden' : 'Musterlösung einblenden'}
-            ><FileText size={18} /></button>
-            {showModelSolution && modelExists && !editingModel && (
-              <div className={`hidden md:flex items-center gap-2 px-2 py-1 rounded-lg ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`} title="Musterlösung-Transparenz">
-                <span className="text-xs text-gray-500">ML</span>
-                <input type="range" min="0.10" max="0.80" step="0.05" value={modelOpacity}
-                  onChange={e => setModelOpacity(parseFloat(e.target.value))} className="w-20 accent-slate-400" />
-              </div>
-            )}
-            <button
-              onClick={() => { if (role === 'first' && studentIdx === 0) { setEditingModel(v => !v); setShowModelSolution(true); setActiveTool(null); } }}
-              disabled={!(role === 'first' && studentIdx === 0)}
-              className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${editingModel ? 'bg-slate-500/20 text-slate-300' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}
-              title={role === 'first' && studentIdx === 0 ? (editingModel ? 'Musterlösung beenden' : 'Musterlösung erstellen/bearbeiten (nur Schüler 1)') : 'Musterlösung kann nur bei Schüler 1 in der Erstkorrektur erstellt werden'}
-            ><Edit3 size={18} /></button>
-            <button
-              onClick={() => setShowOtherLayer(v => !v)}
-              disabled={!canToggleOtherLayer || editingModel}
-              className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${showOtherLayer ? 'bg-blue-500/20 text-blue-400' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}
-              title={canViewOtherLayer ? (showOtherLayer ? 'Andere Korrektur ausblenden' : 'Andere Korrektur einblenden') : 'Andere Korrektur ist gesperrt'}
-            ><Users size={18} /></button>
-            <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
-            <button onClick={() => setShowFull(!showFull)} className={`p-2 rounded-lg ${showFull ? 'bg-amber-500/20 text-amber-500' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title={showFull ? 'Ausschnitt anzeigen' : 'Ganze Seite anzeigen'}><Eye size={18} /></button>
-            <button onClick={() => setShowGradeEditor(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Bewertungstabelle"><Table size={18} /></button>
-            <button onClick={() => setShowFieldEditor(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Felder positionieren (Punkte, Note, Aufgaben-BE)"><Settings size={18} /></button>
-            <button onClick={() => save()} disabled={saving} className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg flex items-center gap-2 transition-colors disabled:opacity-70">
-              {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-              <span className="hidden sm:inline">Speichern</span>
-            </button>
-            {lastSaved && <span className="text-xs text-gray-500 hidden lg:block">{lastSaved.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>}
-          </div>
-        </div>
-      </header>
-
-      <div className="flex-1 flex overflow-hidden">
-        {/* Tasks sidebar */}
-        <div className={`w-44 border-r overflow-y-auto p-3 ${darkMode ? 'border-gray-800 bg-gray-900/50' : 'border-gray-200 bg-white'}`}>
-          <h3 className={`text-xs font-medium mb-2 uppercase tracking-wide ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>Aufgaben</h3>
-          {tasks.map((t, i) => {
-            const done = students.filter(s => s.grades?.[t.id]?.[pointsKey] !== undefined).length;
-            return (
-              <div key={t.id} className={`p-2 rounded-lg mb-1 transition-colors ${i === taskIdx ? 'bg-amber-500/20 border border-amber-500/50' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}>
-                <div className="flex justify-between items-start">
-                  <button onClick={() => { setTaskIdx(i); setStudentIdx(0); }} className="flex-1 text-left text-sm">
-                    <span className="font-medium">{t.name}</span>
-                    <div className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>{done}/{students.length} • {t.maxPoints} BE</div>
-                    <div className={`mt-1 h-1 rounded-full ${darkMode ? 'bg-gray-700' : 'bg-gray-300'}`}>
-                      <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${(done / students.length) * 100}%` }} />
-                    </div>
-                  </button>
-                  <button onClick={() => setEditingTask(t)} className={`p-1 rounded opacity-50 hover:opacity-100 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><Edit3 size={12} /></button>
+              {/* Musterlösung (Model Solution) */}
+              <button
+                onClick={() => setShowModelSolution(v => !v)}
+                disabled={!modelExists && !editingModel}
+                className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${showModelSolution ? 'bg-slate-500/20 text-slate-300' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}
+                title={showModelSolution ? 'Musterlösung ausblenden' : 'Musterlösung einblenden'}
+              ><FileText size={18} /></button>
+              {showModelSolution && modelExists && !editingModel && (
+                <div className={`hidden md:flex items-center gap-2 px-2 py-1 rounded-lg ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`} title="Musterlösung-Transparenz">
+                  <span className="text-xs text-gray-500">ML</span>
+                  <input type="range" min="0.10" max="0.80" step="0.05" value={modelOpacity}
+                    onChange={e => setModelOpacity(parseFloat(e.target.value))} className="w-20 accent-slate-400" />
                 </div>
-              </div>
-            );
-          })}
-          <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-            <div className="flex justify-between text-sm"><span>Summe</span><span className="font-medium">{totalPts()}/{maxPts()}</span></div>
-            <div className="flex justify-between items-center mt-1"><span className="text-sm">Note</span><span className="text-xl font-bold text-amber-500">{formatGradeDisplay(calculateGrade(totalPts(), maxPts(), gradeTable), gradeTable)}</span></div>
+              )}
+              <button
+                onClick={() => { if (role === 'first' && studentIdx === 0) { setEditingModel(v => !v); setShowModelSolution(true); setActiveTool(null); } }}
+                disabled={!(role === 'first' && studentIdx === 0)}
+                className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${editingModel ? 'bg-slate-500/20 text-slate-300' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}
+                title={role === 'first' && studentIdx === 0 ? (editingModel ? 'Musterlösung beenden' : 'Musterlösung erstellen/bearbeiten (nur Schüler 1)') : 'Musterlösung kann nur bei Schüler 1 in der Erstkorrektur erstellt werden'}
+              ><Edit3 size={18} /></button>
+              <button
+                onClick={() => setShowOtherLayer(v => !v)}
+                disabled={!canToggleOtherLayer || editingModel}
+                className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${showOtherLayer ? 'bg-blue-500/20 text-blue-400' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}
+                title={canViewOtherLayer ? (showOtherLayer ? 'Andere Korrektur ausblenden' : 'Andere Korrektur einblenden') : 'Andere Korrektur ist gesperrt'}
+              ><Users size={18} /></button>
+              <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
+              <button onClick={() => setShowFull(!showFull)} className={`p-2 rounded-lg ${showFull ? 'bg-amber-500/20 text-amber-500' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title={showFull ? 'Ausschnitt anzeigen' : 'Ganze Seite anzeigen'}><Eye size={18} /></button>
+              <button onClick={() => setShowGradeEditor(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Bewertungstabelle"><Table size={18} /></button>
+              <button onClick={() => setShowFieldEditor(true)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`} title="Felder positionieren (Punkte, Note, Aufgaben-BE)"><Settings size={18} /></button>
+              <button onClick={() => save()} disabled={saving} className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg flex items-center gap-2 transition-colors disabled:opacity-70">
+                {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                <span className="hidden sm:inline">Speichern</span>
+              </button>
+              {lastSaved && <span className="text-xs text-gray-500 hidden lg:block">{lastSaved.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>}
+            </div>
           </div>
-        </div>
+        </header>
+      )}
+
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        {/* Tasks sidebar */}
+        {!maximized && (
+          <div className={`w-44 border-r overflow-y-auto p-3 ${darkMode ? 'border-gray-800 bg-gray-900/50' : 'border-gray-200 bg-white'}`}>
+            <h3 className={`text-xs font-medium mb-2 uppercase tracking-wide ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>Aufgaben</h3>
+            {tasks.map((t, i) => {
+              const done = students.filter(s => s.grades?.[t.id]?.[pointsKey] !== undefined).length;
+              return (
+                <div key={t.id} className={`p-2 rounded-lg mb-1 transition-colors ${i === taskIdx ? 'bg-amber-500/20 border border-amber-500/50' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}>
+                  <div className="flex justify-between items-start">
+                    <button onClick={() => { setTaskIdx(i); setStudentIdx(0); }} className="flex-1 text-left text-sm">
+                      <span className="font-medium">{t.name}</span>
+                      <div className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>{done}/{students.length} • {t.maxPoints} BE</div>
+                      <div className={`mt-1 h-1 rounded-full ${darkMode ? 'bg-gray-700' : 'bg-gray-300'}`}>
+                        <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${(done / students.length) * 100}%` }} />
+                      </div>
+                    </button>
+                    <button onClick={() => setEditingTask(t)} className={`p-1 rounded opacity-50 hover:opacity-100 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><Edit3 size={12} /></button>
+                  </div>
+                </div>
+              );
+            })}
+            <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="flex justify-between text-sm"><span>Summe</span><span className="font-medium">{totalPts()}/{maxPts()}</span></div>
+              <div className="flex justify-between items-center mt-1"><span className="text-sm">Note</span><span className="text-xl font-bold text-amber-500">{formatGradeDisplay(calculateGrade(totalPts(), maxPts(), gradeTable), gradeTable)}</span></div>
+            </div>
+          </div>
+        )}
 
         {/* Main grading area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Toolbar */}
-          <div className={`p-2 border-b flex items-center justify-between flex-wrap gap-2 ${darkMode ? 'border-gray-800' : 'border-gray-200'}`}>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setZoom(z => Math.max(0.5, z - 0.2))} className={`p-1 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><ZoomOut size={18} /></button>
-              <span className="w-12 text-center text-sm">{Math.round(zoom * 100)}%</span>
-              <button onClick={() => setZoom(z => Math.min(2.5, z + 0.2))} className={`p-1 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><ZoomIn size={18} /></button>
+          {!maximized && (
+            <div className={`p-2 border-b flex items-center justify-between flex-wrap gap-2 ${darkMode ? 'border-gray-800' : 'border-gray-200'}`}>
+              <div className="flex items-center gap-2">
+                {zoomControls}
+                <button data-tour="maximize" onClick={toggleMaximized} title="Korrekturfeld maximieren (Taste F)" aria-label="Korrekturfeld maximieren"
+                  className={`p-1.5 rounded-lg ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-300'}`}><Maximize2 size={18} /></button>
+              </div>
+              {pointsControls}
             </div>
-            {!isOverlayOpen && (
+          )}
+          {!isOverlayOpen && (
             <AnnotationToolbar activeTool={activeTool} setActiveTool={setActiveTool} penColor={penColor} setPenColor={setPenColor} textColor={textColor} setTextColor={setTextColor} textSize={textSize} setTextSize={setTextSize} textOpacity={textOpacity} setTextOpacity={setTextOpacity} lineWidth={lineWidth} setLineWidth={setLineWidth}
               underlineStyle={underlineStyle} setUnderlineStyle={setUnderlineStyle} correctionMarks={project.correctionMarks || defaultCorrectionMarks} selectedMark={selectedMark} setSelectedMark={setSelectedMark}
               onUndo={editingModel ? undoModelAnn : undoAnn} canUndo={(editingModel ? (modelSolutions?.[task?.id] || []).length : myAnnotations.length) > 0} darkMode={darkMode}
-              onboardingStep={guidedOnboarding ? guideStep : 0} onOnboardingAdvance={setGuideStep} />
-            )}
-            <div className={`flex items-center gap-2 rounded-xl ${guidedOnboarding && guideStep === 7 ? 'ring-2 ring-amber-400 p-1' : ''}`}>
-              <button onClick={() => setPoints(0)} disabled={editingModel} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${points === 0 ? 'bg-red-500 text-white' : darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>0 BE</button>
-<input type="number" disabled={editingModel} min="0" max={task?.maxPoints} step="0.5" value={points ?? ''} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setPoints(v); }}
-                className={`w-16 px-2 py-1.5 text-center rounded-lg border font-mono ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`} placeholder="BE" />
-              <span className={`text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>/{task?.maxPoints}</span>
-              <button onClick={() => setPoints(task?.maxPoints)} disabled={editingModel} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${points === task?.maxPoints ? 'bg-green-500 text-white' : darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>volle BE</button>
-            </div>
-          </div>
+              defaultTop={toolbarTop} />
+          )}
 
           {/* Canvas area */}
-          <div className={`flex-1 overflow-hidden flex flex-col ${darkMode ? 'bg-gray-950' : 'bg-gray-300'}`}>
-            <div className="flex-1 p-4 min-h-0">
+          <div ref={canvasAreaRef} className={`flex-1 overflow-hidden flex flex-col ${darkMode ? 'bg-gray-950' : 'bg-gray-300'}`}>
+            {/* Oben Platz für die Werkzeugleiste, maximiert unten auch für die Steuerleiste */}
+            <div className={`flex-1 min-h-0 ${maximized ? 'px-3 pt-16 pb-20' : 'px-4 pt-16 pb-4'}`}>
               <GradingCanvas pdfDoc={pdfDoc} pageNumber={pageNum()} scale={zoom} region={task?.region} isCropped={!showFull}
                 annotations={displayAnnotations} onAddAnnotation={editingModel ? addModelAnn : addAnn} onDeleteAnnotation={editingModel ? delModelAnn : delAnn}
                 activeTool={activeTool} penColor={penColor} textColor={textColor} textSize={textSize} textOpacity={textOpacity} lineWidth={lineWidth} underlineStyle={underlineStyle} selectedMark={selectedMark} darkMode={darkMode}
-                taskPointLabel={task ? { points, maxPoints: task.maxPoints } : null} activeRole={activeCanvasRole} />
+                taskPointLabel={task ? { points, maxPoints: task.maxPoints } : null} activeRole={activeCanvasRole}
+                maxFit={maximized ? 6 : 2.5} />
             </div>
-            <p className={`text-center py-2 text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>
-              Seite {pageNum()} • {editingModel ? 'Musterlösung' : (student?.name || `Schüler ${studentIdx + 1}`)}
-              {student?.pending?.includes(task?.id) && <span className="text-amber-500 ml-2">(übersprungen)</span>}
-            </p>
+            {!maximized && (
+              <p className={`text-center py-2 text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>
+                Seite {pageNum()} • {studentLabel}
+                {isPending && <span className="text-amber-500 ml-2">(übersprungen)</span>}
+              </p>
+            )}
           </div>
 
           {/* Bottom navigation */}
-          <div className={`p-3 border-t ${darkMode ? 'border-gray-800' : 'border-gray-200'}`}>
-            <div className="flex justify-between items-center">
-              <input type="text" value={student?.name || ''} onChange={e => setStudents(s => { const u = [...s]; u[studentIdx].name = e.target.value; return u; })}
-                placeholder={`Schüler ${studentIdx + 1} – Name eingeben`} className={`px-3 py-2 rounded-lg border w-56 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`} />
-              <div className="flex gap-2">
-                <button onClick={prev} disabled={editingModel || studentIdx === 0} className={`px-4 py-2 rounded-lg disabled:opacity-30 transition-colors ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}><ChevronLeft size={18} /></button>
-                <button onClick={skip} disabled={editingModel} title="Überspringen" aria-label="Aktuelle Bewertung überspringen" className={`px-4 py-2 rounded-lg transition-colors ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}><SkipForward size={18} /></button>
-                <button onClick={next} disabled={editingModel} className={`px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg flex items-center gap-1 font-medium transition-colors ${guidedOnboarding && guideStep === 8 ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-transparent' : ''}`}>
-                  {isLastStudent && isLastTask ? 'Abschließen' : 'Weiter'}
-                  <ChevronRight size={18} />
-                </button>
+          {!maximized && (
+            <div className={`p-3 border-t ${darkMode ? 'border-gray-800' : 'border-gray-200'}`}>
+              <div className="flex justify-between items-center">
+                <input type="text" value={student?.name || ''} onChange={e => setStudents(s => { const u = [...s]; u[studentIdx].name = e.target.value; return u; })}
+                  placeholder={`Schüler ${studentIdx + 1} – Name eingeben`} className={`px-3 py-2 rounded-lg border w-56 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`} />
+                {navButtons}
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Students sidebar */}
-        <div className={`w-36 border-l overflow-y-auto p-3 ${darkMode ? 'border-gray-800 bg-gray-900/50' : 'border-gray-200 bg-white'}`}>
-          <h3 className={`text-xs font-medium mb-2 uppercase tracking-wide ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>Schüler</h3>
-          {students.map((s, i) => {
-            const p = s.grades?.[task?.id]?.[pointsKey];
-            const pending = s.pending?.includes(task?.id);
-            return (
-              <button key={s.id} onClick={() => { if (!editingModel) setStudentIdx(i); }} className={`w-full p-2 rounded-lg text-left text-sm mb-1 transition-colors ${i === studentIdx ? 'bg-amber-500/20 border border-amber-500/50' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'} ${pending ? 'opacity-60' : ''}`}>
-                <div className="flex justify-between items-center">
-                  <span className="truncate">{pending && <SkipForward size={10} className="inline text-amber-500 mr-0.5" />}{s.name || `#${i + 1}`}</span>
-                  {p !== undefined && <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${p === task?.maxPoints ? 'bg-green-500/20 text-green-400' : p === 0 ? 'bg-red-500/20 text-red-400' : darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>{p}</span>}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+        {!maximized && (
+          <div className={`w-36 border-l overflow-y-auto p-3 ${darkMode ? 'border-gray-800 bg-gray-900/50' : 'border-gray-200 bg-white'}`}>
+            <h3 className={`text-xs font-medium mb-2 uppercase tracking-wide ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>Schüler</h3>
+            {students.map((s, i) => {
+              const p = s.grades?.[task?.id]?.[pointsKey];
+              const pending = s.pending?.includes(task?.id);
+              return (
+                <button key={s.id} onClick={() => { if (!editingModel) setStudentIdx(i); }} className={`w-full p-2 rounded-lg text-left text-sm mb-1 transition-colors ${i === studentIdx ? 'bg-amber-500/20 border border-amber-500/50' : darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'} ${pending ? 'opacity-60' : ''}`}>
+                  <div className="flex justify-between items-center">
+                    <span className="truncate">{pending && <SkipForward size={10} className="inline text-amber-500 mr-0.5" />}{s.name || `#${i + 1}`}</span>
+                    {p !== undefined && <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${p === task?.maxPoints ? 'bg-green-500/20 text-green-400' : p === 0 ? 'bg-red-500/20 text-red-400' : darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>{p}</span>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
-          <Footer darkMode={darkMode} />
+      {!maximized && <Footer darkMode={darkMode} />}
+
+      {/* Steuerleiste im maximierten Korrekturfeld */}
+      {maximized && (
+        <div className="fixed inset-x-0 bottom-3 z-40 flex justify-center px-3 pointer-events-none">
+        <div role="toolbar" aria-label="Korrektursteuerung" data-tour-avoid
+          className={`pointer-events-auto flex flex-wrap items-center justify-center gap-3 px-3 py-2 rounded-2xl border shadow-2xl ${darkMode ? 'bg-gray-900/95 border-gray-700' : 'bg-white/95 border-gray-300'}`}>
+          <div className="min-w-0 max-w-[14rem] leading-tight">
+            <div className="text-sm font-medium text-amber-500 truncate">{task?.name}</div>
+            <div className={`text-xs truncate ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              {studentLabel} · {studentIdx + 1}/{students.length}{isPending ? ' · übersprungen' : ''}
+            </div>
+          </div>
+          {divider}
+          {pointsControls}
+          {divider}
+          {navButtons}
+          {divider}
+          {zoomControls}
+          <button data-tour="maximize" onClick={toggleMaximized} title="Maximierung beenden (F oder Esc)" aria-label="Maximierung beenden"
+            className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}><Minimize2 size={18} /></button>
+        </div>
+        </div>
+      )}
     </div>
   );
 }
