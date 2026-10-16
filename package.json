@@ -1,6 +1,6 @@
 {
   "name": "capy-note",
-  "version": "1.2.8",
+  "version": "1.5.2",
   "description": "Capy-note - Effiziente Bewertung gescannter Schülerarbeiten",
   "main": "electron/main.cjs",
   "author": "Florian Christoph Nowak",
@@ -18,9 +18,11 @@
     "electron:build:linux": "vite build && electron-builder --linux"
   },
   "dependencies": {
-    "@fontsource/gloria-hallelujah": "^5.2.8",
     "@fontsource/indie-flower": "^5.2.7",
+    "fflate": "0.8.2",
     "lucide-react": "^0.460.0",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "3.11.174",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
