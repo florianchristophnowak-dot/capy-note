@@ -48,7 +48,7 @@
 
 - Capy-note ist als **lokale/offline** Anwendung konzipiert (keine Cloud, kein Login, kein Sync).
 - Projektdaten werden lokal gespeichert und nur über **Exportdateien** weitergegeben.
-- Die Schriftarten **Indie Flower** und **Gloria Hallelujah** werden **lokal** über `@fontsource/*` eingebunden (keine Google-Fonts-Requests).
+- Die Schriftart **Indie Flower** wird **lokal** über `@fontsource/*` eingebunden (keine Google-Fonts-Requests).
 
 ## 🚀 Installation
 
