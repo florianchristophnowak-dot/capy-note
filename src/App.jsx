@@ -3294,7 +3294,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
 
   return (
     <Modal onClose={onClose}>
-      <div className={`rounded-2xl w-[850px] max-h-[85vh] flex flex-col ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
+      <div className={`rounded-2xl w-[min(1200px,96vw)] max-h-[92vh] flex flex-col ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
         <div className={`p-4 border-b flex justify-between items-center ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
           <div className="flex items-center gap-3">
             <Award className="text-amber-500" size={24} />
@@ -3305,7 +3305,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
           </div>
           <button onClick={onClose} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}><X size={20} /></button>
         </div>
-        
+        <div className="flex-1 min-h-0 overflow-y-auto">
         {classCompetences.length > 0 && (
           <div className={`p-4 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
             <p className="font-semibold text-sm mb-2">Kompetenzbereiche (Klassenmittel, final)</p>
@@ -3391,6 +3391,53 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
           </div>
         </div>
         
+
+        {/* Student list */}
+        <div className={`p-4 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+          <h3 className="font-semibold mb-2">Punkte je Schüler</h3>
+          <div className={`overflow-auto rounded-lg border max-h-[60vh] ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+          <table className="w-full min-w-max">
+            <thead className={`sticky top-0 z-10 text-left text-sm ${darkMode ? 'text-gray-400 bg-gray-900' : 'text-gray-600 bg-white'}`}>
+              <tr>
+                <th className="py-2 px-2 font-medium">Name</th>
+                {tasks.map(t => <th key={t.id} className="py-2 px-2 font-medium text-center">{t.name}</th>)}
+                <th className="py-2 px-2 font-medium text-center">Gesamt</th>
+                <th className="py-2 px-2 font-medium text-center">Note</th>
+                <th className="py-2 px-2 font-medium text-right">PDF</th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((s, i) => {
+                const total = getStudentTotal(s);
+                const grade = getStudentGrade(s);
+                return (
+                  <tr key={s.id} className={`border-t ${darkMode ? 'border-gray-800' : 'border-gray-200'}`}>
+                    <td className="py-2 px-2 whitespace-nowrap">{s.name || `Schüler ${i + 1}`}</td>
+                    {tasks.map(t => {
+                      const pts = getFinalTaskPoints(s, t);
+                      const isFinal = s.grades?.[t.id]?.finalPoints !== undefined;
+                      const conflict = hasConflict(s.grades?.[t.id]) && !isFinal;
+                      return (
+                        <td key={t.id} title={isFinal ? 'Final gesetzt' : conflict ? 'Konflikt rot ≠ grün (Erstkorrektur zählt)' : undefined}
+                          className={`py-2 px-2 text-center ${isFinal ? 'text-violet-400 font-semibold' : conflict ? 'underline decoration-dotted decoration-violet-500' : isBonusScore(pts, t.maxPoints) ? 'text-fuchsia-500 font-bold' : pts === t.maxPoints ? 'text-green-500' : pts === 0 ? 'text-red-500' : ''}`}>
+                          {pts ?? '—'}
+                        </td>
+                      );
+                    })}
+                    <td className={`py-2 px-2 text-center font-medium ${s.finalTotal !== undefined ? 'text-violet-400' : ''}`} title={s.finalTotal !== undefined ? 'Gesamtsumme manuell überschrieben' : undefined}>{total}/{maxPts}</td>
+                    <td className="py-2 px-2 text-center font-bold text-amber-500">{grade}</td>
+                    <td className="py-2 px-2 text-right">
+                      <button onClick={async () => { const err = await exportStudentPdf(s, i); if (err) onToast?.('Export fehlgeschlagen: ' + err, 'error'); }} disabled={!!exporting} className={`p-1.5 rounded disabled:opacity-50 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}>
+                        <Download size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          </div>
+        </div>
 
         {/* Diagnose (Fehlerarten) */}
         {diagnosticCatalog.length > 0 && (
@@ -3527,49 +3574,6 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
             <Archive size={18} /> Projekt sichern (ZIP)
           </button>
         </div>
-        
-        {/* Student list */}
-        <div className="flex-1 overflow-y-auto p-4">
-          <table className="w-full">
-            <thead className={`text-left text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              <tr>
-                <th className="pb-2 font-medium">Name</th>
-                {tasks.map(t => <th key={t.id} className="pb-2 font-medium text-center">{t.name}</th>)}
-                <th className="pb-2 font-medium text-center">Gesamt</th>
-                <th className="pb-2 font-medium text-center">Note</th>
-                <th className="pb-2 font-medium text-right">PDF</th>
-              </tr>
-            </thead>
-            <tbody>
-              {students.map((s, i) => {
-                const total = getStudentTotal(s);
-                const grade = getStudentGrade(s);
-                return (
-                  <tr key={s.id} className={`border-t ${darkMode ? 'border-gray-800' : 'border-gray-200'}`}>
-                    <td className="py-2">{s.name || `Schüler ${i + 1}`}</td>
-                    {tasks.map(t => {
-                      const pts = getFinalTaskPoints(s, t);
-                      const isFinal = s.grades?.[t.id]?.finalPoints !== undefined;
-                      const conflict = hasConflict(s.grades?.[t.id]) && !isFinal;
-                      return (
-                        <td key={t.id} title={isFinal ? 'Final gesetzt' : conflict ? 'Konflikt rot ≠ grün (Erstkorrektur zählt)' : undefined}
-                          className={`py-2 text-center ${isFinal ? 'text-violet-400 font-semibold' : conflict ? 'underline decoration-dotted decoration-violet-500' : isBonusScore(pts, t.maxPoints) ? 'text-fuchsia-500 font-bold' : pts === t.maxPoints ? 'text-green-500' : pts === 0 ? 'text-red-500' : ''}`}>
-                          {pts ?? '—'}
-                        </td>
-                      );
-                    })}
-                    <td className={`py-2 text-center font-medium ${s.finalTotal !== undefined ? 'text-violet-400' : ''}`} title={s.finalTotal !== undefined ? 'Gesamtsumme manuell überschrieben' : undefined}>{total}/{maxPts}</td>
-                    <td className="py-2 text-center font-bold text-amber-500">{grade}</td>
-                    <td className="py-2 text-right">
-                      <button onClick={async () => { const err = await exportStudentPdf(s, i); if (err) onToast?.('Export fehlgeschlagen: ' + err, 'error'); }} disabled={!!exporting} className={`p-1.5 rounded disabled:opacity-50 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}>
-                        <Download size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
         </div>
       </div>
     </Modal>
