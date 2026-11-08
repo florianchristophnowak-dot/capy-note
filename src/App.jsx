@@ -6035,6 +6035,26 @@ function GradingView({ darkMode, setDarkMode, project, onSave, onBack, vaultPass
     return { full, half, suggested, hasAny: (full + half) > 0 };
   }, [myAnnotations, task?.maxPoints]);
 
+  // Abgleich Vorschlag (Haken-Stempel) ↔ tatsächlich vergebene BE: farblicher Hinweis bei Abweichung
+  const stampActual = (regions.length > 1 && !task?.rubric) ? currentPart : points;
+  const stampStatus = (!checkStampPoints.hasAny || stampActual === undefined || stampActual === null)
+    ? 'open'
+    : Math.abs(stampActual - checkStampPoints.suggested) < 1e-9 ? 'match' : 'mismatch';
+  const stampBoxClass = stampStatus === 'mismatch'
+    ? 'border-2 border-orange-500 ' + (darkMode ? 'bg-orange-500/15 text-orange-200' : 'bg-orange-50 text-orange-800')
+    : stampStatus === 'match'
+      ? 'border border-green-500/60 ' + (darkMode ? 'bg-green-500/10 text-green-200' : 'bg-green-50 text-green-800')
+      : 'border border-transparent ' + (darkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-100 text-gray-700');
+  const stampStatusLabel = stampStatus === 'mismatch'
+    ? <span className="font-semibold text-orange-500" title="Die vergebenen BE weichen vom Vorschlag aus den Haken ab">≠ vergeben: {formatHalfPoints(stampActual)} BE</span>
+    : stampStatus === 'match'
+      ? <span className="text-green-500" title="Vergebene BE entsprechen dem Vorschlag">✓ stimmt überein</span>
+      : null;
+  // ersetzt die normale Rahmen-/Hintergrundfarbe des BE-Feldes (keine widersprüchlichen Tailwind-Klassen)
+  const pointsInputColors = stampStatus === 'mismatch'
+    ? 'border-orange-500 ring-1 ring-orange-500 ' + (darkMode ? 'bg-gray-800' : 'bg-gray-50')
+    : (darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300');
+
   const setDiagnosticSelection = (errorId, mode = 'toggle') => {
     if (!student || !task || editingModel) return;
     setStudents(prev => {
@@ -6506,7 +6526,7 @@ useEffect(() => {
               }
             }}
             onBlur={() => setPointsBuffer('')}
-            className={`w-20 px-2 py-1.5 text-center rounded-lg border font-mono ${pointsBuffer !== '' ? 'ring-2 ring-amber-500 ' : ''}${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`}
+            className={`w-20 px-2 py-1.5 text-center rounded-lg border font-mono ${pointsBuffer !== '' ? 'ring-2 ring-amber-500 ' : ''}${pointsInputColors}`}
             placeholder="Teil-BE" />
           <span className={`text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>Teil-BE</span>
           <span className={`ml-3 text-sm font-medium ${points === task?.maxPoints ? 'text-green-500' : ''}`}>
@@ -6517,8 +6537,9 @@ useEffect(() => {
             })()}
           </span>
           {!editingModel && checkStampPoints.hasAny && (
-            <div className={`ml-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${darkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-100 text-gray-700'}`}>
+            <div className={`ml-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${stampBoxClass}`}>
               <span>Vorschlag (dieser Ausschnitt): {formatHalfPoints(checkStampPoints.suggested)} BE</span>
+              {stampStatusLabel}
               <button type="button" onClick={() => setPartPoints(region.id, checkStampPoints.suggested)}
                 className="px-2 py-1 rounded bg-amber-500 text-white hover:bg-amber-600 transition-colors">übernehmen</button>
             </div>
@@ -6544,7 +6565,7 @@ useEffect(() => {
           }}
           onBlur={() => setPointsBuffer('')}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); setPointsBuffer(''); e.target.blur(); next(); } }}
-          className={`w-20 px-2 py-1.5 text-center rounded-lg border font-mono ${pointsBuffer !== '' ? 'ring-2 ring-amber-500 ' : ''}${isBonusScore(points, task?.maxPoints) ? 'border-fuchsia-500 bg-fuchsia-500/10 text-fuchsia-200' : darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`} placeholder="BE" />
+          className={`w-20 px-2 py-1.5 text-center rounded-lg border font-mono ${pointsBuffer !== '' ? 'ring-2 ring-amber-500 ' : ''}${isBonusScore(points, task?.maxPoints) ? 'border-fuchsia-500 bg-fuchsia-500/10 text-fuchsia-200' : pointsInputColors}`} placeholder="BE" />
         <span className={`text-sm ${darkMode ? 'text-gray-500' : 'text-gray-600'}`}>/{task?.maxPoints}</span>
         <button onClick={() => setPoints(task?.maxPoints)} disabled={editingModel} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${points === task?.maxPoints ? 'bg-green-500 text-white' : darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>volle BE</button>
         {isBonusScore(points, task?.maxPoints) && !editingModel && (
@@ -6553,9 +6574,10 @@ useEffect(() => {
           </div>
         )}
         {!editingModel && checkStampPoints.hasAny && (
-          <div className={`ml-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${darkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-100 text-gray-700'}`}>
+          <div className={`ml-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${stampBoxClass}`}>
             <span>Vorschlag: {formatHalfPoints(checkStampPoints.suggested)} BE</span>
             <span className={`${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>({checkStampPoints.full}×✓, {checkStampPoints.half}×½✓)</span>
+            {stampStatusLabel}
             <button
               type="button"
               onClick={() => setPoints(checkStampPoints.suggested)}
