@@ -692,6 +692,18 @@ function StampPreview({ mark, size = 20 }) {
   );
 }
 
+// Wellenlinie: Höhe und Wellenlänge hängen nur von der Strichstärke ab (in Pixeln),
+// damit die Welle auf jedem Seitenformat und im Export gleich aussieht.
+// Jede Halbwelle ist eine quadratische Kurve (Scheitel = halber Kontrollpunkt-Abstand),
+// die Übergänge sind dadurch glatt; die Länge wird auf ganze Halbwellen verteilt.
+const wavyGeometry = (widthPx, lw) => {
+  const amp = Math.max(1.6, lw * 0.95);
+  const targetHalf = Math.max(4, lw * 2.6);
+  const w = Math.max(0, widthPx);
+  const n = Math.max(1, Math.round(w / targetHalf));
+  return { amp, halfLen: w / n, n };
+};
+
 const drawCanvasUnderline = (ctx, { x, y, width, color, lineWidth = 2, style = 'solid', double = false, hook = false }) => {
   const lw = Math.max(1, lineWidth);
   // Doppellinien eng führen, aber mit sichtbarem Abstand (~1 mm auf typischen Displays)
@@ -700,13 +712,15 @@ const drawCanvasUnderline = (ctx, { x, y, width, color, lineWidth = 2, style = '
 
   const drawOne = (yy) => {
     if (style === 'wavy') {
+      const { amp, halfLen, n } = wavyGeometry(width, lw);
+      ctx.setLineDash([]);
+      ctx.lineJoin = 'round';
       ctx.beginPath();
-      const amp = 2 + lw * 0.3;
-      const wl = 6 + lw * 0.5;
-      for (let px = 0; px <= width; px += 0.5) {
-        const wx = x + px;
-        const wy = yy + Math.sin((px / wl) * Math.PI * 2) * amp;
-        if (px === 0) ctx.moveTo(wx, wy); else ctx.lineTo(wx, wy);
+      ctx.moveTo(x, yy);
+      for (let k = 0; k < n; k++) {
+        const sx = x + k * halfLen;
+        const dir = k % 2 === 0 ? -1 : 1;
+        ctx.quadraticCurveTo(sx + halfLen / 2, yy + dir * amp * 2, sx + halfLen, yy);
       }
       ctx.stroke();
       return;
@@ -802,6 +816,50 @@ const formatBE = (v) => {
   const rounded = Math.round(n * 2) / 2;
   return Number.isInteger(rounded) ? String(rounded) : String(rounded).replace(/\.0$/, '');
 };
+
+// Anzeigeformat der Gesamtpunkte (pro Projekt, gespeichert in scoreFields.totalFormat)
+const TOTAL_FORMAT_STYLES = [
+  { id: 'fraction', label: 'erreicht / gesamt' },
+  { id: 'number', label: 'nur Zahl' },
+];
+const TOTAL_FORMAT_UNITS = [
+  { id: 'BE', label: 'BE' },
+  { id: 'Punkte', label: 'Punkte' },
+  { id: 'credits', label: 'credits' },
+  { id: 'crédits', label: 'crédits' },
+  { id: '', label: 'ohne Einheit' },
+];
+const normalizeTotalFormat = (f) => ({
+  style: f?.style === 'number' ? 'number' : 'fraction',
+  unit: TOTAL_FORMAT_UNITS.some(u => u.id === f?.unit) ? f.unit : 'BE',
+});
+const formatTotalLabel = (total, maxPts, fmt) => {
+  const { style, unit } = normalizeTotalFormat(fmt);
+  const value = style === 'number' ? formatBE(total) : `${formatBE(total)} / ${formatBE(maxPts)}`;
+  return unit ? `${value} ${unit}` : value;
+};
+
+function TotalFormatPicker({ value, onChange, darkMode, compact = false }) {
+  const fmt = normalizeTotalFormat(value);
+  const sel = `px-2 py-1 rounded-lg border text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`;
+  return (
+    <div className={`flex flex-wrap items-center gap-2 ${compact ? '' : 'mt-2'}`}>
+      <label className="flex items-center gap-1 text-xs">
+        <span className={darkMode ? 'text-gray-400' : 'text-gray-600'}>Anzeige</span>
+        <select value={fmt.style} onChange={e => onChange({ ...fmt, style: e.target.value })} className={sel} aria-label="Anzeigeformat der Gesamtpunkte">
+          {TOTAL_FORMAT_STYLES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+      </label>
+      <label className="flex items-center gap-1 text-xs">
+        <span className={darkMode ? 'text-gray-400' : 'text-gray-600'}>Einheit</span>
+        <select value={fmt.unit} onChange={e => onChange({ ...fmt, unit: e.target.value })} className={sel} aria-label="Einheit der Gesamtpunkte">
+          {TOTAL_FORMAT_UNITS.map(o => <option key={o.id || 'none'} value={o.id}>{o.label}</option>)}
+        </select>
+      </label>
+      <span className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>z. B. „{formatTotalLabel(17.5, 24, fmt)}“</span>
+    </div>
+  );
+}
 
 const getTasksMaxPoints = (tasks = []) => (tasks || []).reduce((sum, t) => sum + (Number(t?.maxPoints) || 0), 0);
 const getStudentRawTotal = (student, tasks = [], pointsKey = 'points') => (
@@ -2075,7 +2133,7 @@ const drawStudentOverlay = (ctx, canvas, student, pageOffset, scale, opts) => {
       ctx.lineWidth = 2;
       ctx.strokeRect(x, y, w, h);
 
-      const label = `${formatBE(total)} / ${formatBE(maxPts)} BE`;
+      const label = formatTotalLabel(total, maxPts, scoreFields.totalFormat);
       ctx.fillStyle = '#dc2626';
       const fs = fitTextSize(ctx, label, w, h, 'Indie Flower', '400');
       ctx.font = `400 ${fs}px "Indie Flower", cursive`;
@@ -2114,7 +2172,7 @@ const drawStudentOverlay = (ctx, canvas, student, pageOffset, scale, opts) => {
       ctx.lineWidth = 3;
       ctx.strokeRect(bx, by, bw, bh);
 
-      const label = `${formatBE(total)} / ${formatBE(maxPts)} BE`;
+      const label = formatTotalLabel(total, maxPts, scoreFields.totalFormat);
       ctx.fillStyle = '#dc2626';
       ctx.font = '400 26px "Indie Flower", cursive';
       ctx.fillText(label, bx + 15, by + 38);
@@ -2311,7 +2369,7 @@ function StudentReviewModal({ pdfDoc, students, tasks, gradeTable, pointsKey = '
               const overridden = student.finalTotal !== undefined;
               return (
                 <div className={`p-3 border-t text-sm ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                  <div className="flex justify-between"><span>Gesamt ({pointsKey === 'secondPoints' ? 'grün' : 'rot'})</span><span className="font-medium">{formatBE(total)}/{formatBE(maxPts)} BE</span></div>
+                  <div className="flex justify-between"><span>Gesamt ({pointsKey === 'secondPoints' ? 'grün' : 'rot'})</span><span className="font-medium">{formatTotalLabel(total, maxPts, scoreFields?.totalFormat)}</span></div>
                   <div className="flex justify-between items-center mt-2">
                     <span>Gesamt (final)</span>
                     <div className="flex items-center gap-1">
@@ -2612,7 +2670,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
     text(project.title || 'Klassenarbeit', M, { size: 16, bold: true }); line(9);
     text(`Rückmeldung für ${student.name || 'Schüler/in'}`, M, { size: 11, color: '#374151' }); line(14);
     const total = getStudentTotal(student);
-    text(`Gesamtergebnis: ${formatBE(total)} / ${formatBE(maxPts)} BE`, M, { size: 11, bold: true });
+    text(`Gesamtergebnis: ${formatTotalLabel(total, maxPts, scoreFields.totalFormat)}`, M, { size: 11, bold: true });
     text(`Note: ${getStudentGrade(student)}`, M + 280 * scale, { size: 11, bold: true });
     line(8); rule(); line(16);
 
@@ -3593,15 +3651,18 @@ function PDFPageView({ pdfDoc, pageNumber, scale, regions, selectionMode, onSele
 }
 
 // ==================== SVG Wavy Line Path Generator ====================
-const wavyPath = (x1, y1, x2, y1end, amplitude = 0.4, wavelength = 1.2) => {
-  const dx = x2 - x1;
-  const steps = Math.max(30, Math.abs(dx) * 4);
-  let d = `M ${x1} ${y1}`;
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    const cx = x1 + dx * t;
-    const cy = y1 + Math.sin((t * Math.abs(dx) / wavelength) * Math.PI * 2) * amplitude;
-    d += ` L ${cx} ${cy}`;
+// Koordinaten in Prozent (viewBox 0–100, nicht proportional skaliert); die Welle wird
+// in Pixeln berechnet (wPx/hPx = Größe der Fläche) und zurückgerechnet, damit sie nicht verzerrt.
+const wavyPath = (x1, y, x2, lwPx, wPx, hPx) => {
+  const W = Math.max(1, wPx), H = Math.max(1, hPx);
+  const { amp, halfLen, n } = wavyGeometry(((x2 - x1) / 100) * W, lwPx);
+  const hl = (halfLen / W) * 100;
+  const a2 = ((amp * 2) / H) * 100;
+  let d = `M ${x1} ${y}`;
+  for (let k = 0; k < n; k++) {
+    const sx = x1 + k * hl;
+    const dir = k % 2 === 0 ? -1 : 1;
+    d += ` Q ${sx + hl / 2} ${y + dir * a2} ${sx + hl} ${y}`;
   }
   return d;
 };
@@ -4119,13 +4180,14 @@ function GradingCanvas({ pdfDoc, pageNumber, rotation = 0, scale, region, isCrop
     const opacity = isPreview ? 0.6 : 1;
     const lw = (a.lineWidth || 2) * 0.8;
     const containerH = Math.max(1, containerRef.current?.clientHeight || 1);
+    const containerW = Math.max(1, containerRef.current?.clientWidth || 1);
     const gapPx = a.double ? Math.max(2.8, (a.lineWidth || 2) * 1.35) : 0;
     const gap = (gapPx / containerH) * 100;
     const ys = a.double ? [y - gap / 2, y + gap / 2] : [y];
 
     const renderOne = (yy, suffix) => {
       if (a.style === 'wavy') {
-        return <path key={`u${i}-${suffix}`} d={wavyPath(x1, yy, x2, yy, 0.25 + lw * 0.06, 0.8 + lw * 0.05)} fill="none" stroke={a.color} strokeWidth={lw} opacity={opacity} vectorEffect="non-scaling-stroke" strokeLinecap="round" />;
+        return <path key={`u${i}-${suffix}`} d={wavyPath(x1, yy, x2, lw, containerW, containerH)} fill="none" stroke={a.color} strokeWidth={lw} opacity={opacity} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />;
       }
       const dashProps = {};
       if (a.style === 'dashed') dashProps.strokeDasharray = `${lw * 4} ${lw * 2}`;
@@ -5162,6 +5224,9 @@ function SetupWizard({ darkMode, onBack, onComplete, startWithDemo = false }) {
                     {scoreFields[f.key] && <button onClick={() => setScoreFields(sf => ({ ...sf, [f.key]: null }))} className="p-1.5 rounded text-red-400 hover:bg-red-500/20" title={f.removeLabel} aria-label={f.removeLabel}><X size={14} /></button>}
                   </div>
                 </div>
+                {f.key === 'totalField' && (
+                  <TotalFormatPicker value={scoreFields.totalFormat} onChange={v => setScoreFields(sf => ({ ...sf, totalFormat: v }))} darkMode={darkMode} />
+                )}
               </div>
             ))}
 
@@ -5354,6 +5419,7 @@ function FieldPositionEditor({ pdfDoc, pageNumber, tasks, scoreFields, taskPoint
           </button>
           {fields.totalField && <button onClick={() => setFields(f => ({ ...f, totalField: null }))} className="text-red-400 text-sm hover:text-red-300">BE entfernen</button>}
           {fields.gradeField && <button onClick={() => setFields(f => ({ ...f, gradeField: null }))} className="text-red-400 text-sm hover:text-red-300">Note entfernen</button>}
+          <TotalFormatPicker compact value={fields.totalFormat} onChange={v => setFields(f => ({ ...f, totalFormat: v }))} darkMode={darkMode} />
           <div className={`ml-auto flex gap-2 border-l pl-3 ${darkMode ? 'border-gray-600' : 'border-gray-300'}`}>
             <span className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Aufgaben-BE:</span>
             <button onClick={alignVertical} title="Vertikal ausrichten" className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>
