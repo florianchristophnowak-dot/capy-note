@@ -1912,6 +1912,8 @@ const drawStudentOverlay = (ctx, canvas, student, pageOffset, scale, opts) => {
     tasks, scoreFields, taskPointPositions,
     modelSolutions, includeModelSolution, exportModelOpacity,
     maxPts, getStudentTotal, getStudentGrade, pointsKey,
+    // Korrekturebene: in der Zweitkorrektur nur die grüne Ebene zeichnen
+    role = pointsKey === 'secondPoints' ? 'second' : 'first',
     getTaskPoints = (st, t) => st.grades?.[t.id]?.[pointsKey],
   } = opts;
   // Schritt 9: jede Region wird zur virtuellen Aufgabe (id/page/region passend, Overrides greifen)
@@ -2492,7 +2494,9 @@ function RegionOverrideModal({ pdfDoc, pageNumber, task, regionIndex, currentRec
 
 // ==================== Results/Export Modal ====================
 function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBuffer, onClose, onToast, darkMode, vaultPassword }) {
-  const [exporting, setExporting] = useState(false);
+  // Laufender PDF-Export: null, 'all' (Sammel-PDF) oder 'individual' (Einzel-PDFs) –
+  // der Fortschritt erscheint am Knopf des Exports, der gerade läuft.
+  const [exporting, setExporting] = useState(null);
   const [exportProgress, setExportProgress] = useState(0);
 
   // Diagnose-Filter
@@ -2525,7 +2529,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
   const overlayOpts = {
     tasks, scoreFields, taskPointPositions: project.taskPointPositions || {},
     modelSolutions, includeModelSolution, exportModelOpacity,
-    maxPts, getStudentTotal, getStudentGrade, pointsKey,
+    maxPts, getStudentTotal, getStudentGrade, pointsKey, role,
     getTaskPoints: (st, t) => getFinalTaskPoints(st, { id: t.baseId || t.id }),
   };
 
@@ -2965,7 +2969,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
     }
   };
 
-  // Export single student as PDF
+  // Einen Schüler als PDF exportieren; liefert null bei Erfolg, sonst die Fehlermeldung
   const exportStudentPdf = async (student, index, srcDocShared) => {
     try {
       const srcDoc = rasterExport ? null
@@ -2975,16 +2979,16 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
       if (appendModelPages) await appendModelPagesTo(outDoc);
       const bytes = await outDoc.save();
       downloadBytes(bytes, `${sanitizeFileName(student.name) || `Schueler_${index + 1}`}.pdf`);
-      return true;
+      return null;
     } catch (e) {
       console.error('Export error:', e);
-      return false;
+      return e?.message || String(e);
     }
   };
 
   // Export all as combined PDF
   const exportAllPdf = async () => {
-    setExporting(true);
+    setExporting('all');
     setExportProgress(0);
     try {
       const srcDoc = rasterExport ? null : await loadSourceDoc();
@@ -3022,20 +3026,32 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
       console.error('Export error:', e);
       onToast?.('Export fehlgeschlagen: ' + e.message, 'error');
     }
-    setExporting(false);
+    setExporting(null);
   };
 
   const exportIndividualPdfs = async () => {
-    setExporting(true);
-    const srcDoc = rasterExport ? null : await loadSourceDoc(); // Quelle nur EINMAL laden
-    for (let i = 0; i < students.length; i++) {
-      setExportProgress(Math.round((i / students.length) * 100));
-      await exportStudentPdf(students[i], i, srcDoc);
-      await new Promise(r => setTimeout(r, 200));
+    setExporting('individual');
+    setExportProgress(0);
+    let failed = 0;
+    let firstError = null;
+    try {
+      const srcDoc = rasterExport ? null : await loadSourceDoc(); // Quelle nur EINMAL laden
+      for (let i = 0; i < students.length; i++) {
+        setExportProgress(Math.round((i / students.length) * 100));
+        const err = await exportStudentPdf(students[i], i, srcDoc);
+        if (err) { failed++; firstError = firstError || err; }
+        await new Promise(r => setTimeout(r, 200));
+      }
+      setExportProgress(100);
+    } catch (e) {
+      console.error('Export error:', e);
+      failed = students.length;
+      firstError = e?.message || String(e);
     }
-    setExportProgress(100);
-    setExporting(false);
-    onToast?.(`${students.length} Einzel-PDFs exportiert!`, 'success');
+    setExporting(null);
+    // Erfolg nur melden, wenn wirklich jede Datei entstanden ist
+    if (!failed) onToast?.(`${students.length} Einzel-PDFs exportiert!`, 'success');
+    else onToast?.(`${failed} von ${students.length} Einzel-PDFs fehlgeschlagen: ${firstError}`, 'error');
   };
   
   // Download CSV
@@ -3353,7 +3369,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
                 <h3 className="font-semibold">Zweitkorrektur</h3>
                 <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Exportiert ein Projektpaket (inkl. PDF) für eine Zweitkorrektur auf einem anderen PC.</p>
               </div>
-              <button onClick={() => setShowSecondZip(true)} disabled={exporting} className="py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+              <button onClick={() => setShowSecondZip(true)} disabled={!!exporting} className="py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
                 <Archive size={18} /> Paket exportieren
               </button>
             </div>
@@ -3417,13 +3433,13 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
           <button onClick={downloadCsv} className="py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center gap-2 transition-colors">
             <FileText size={18} /> CSV-Übersicht
           </button>
-          <button onClick={exportAllPdf} disabled={exporting} className="py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
-            <Download size={18} /> {exporting ? `${exportProgress}%` : 'Sammel-PDF'}
+          <button onClick={exportAllPdf} disabled={!!exporting} className="py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+            <Download size={18} /> {exporting === 'all' ? `${exportProgress}%` : 'Sammel-PDF'}
           </button>
-          <button onClick={exportIndividualPdfs} disabled={exporting} className="py-3 rounded-xl bg-green-600 hover:bg-green-500 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
-            <Users size={18} /> Einzel-PDFs
+          <button onClick={exportIndividualPdfs} disabled={!!exporting} className="py-3 rounded-xl bg-green-600 hover:bg-green-500 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+            <Users size={18} /> {exporting === 'individual' ? `${exportProgress}%` : 'Einzel-PDFs'}
           </button>
-          <button onClick={() => setShowZipExport(true)} disabled={exporting}
+          <button onClick={() => setShowZipExport(true)} disabled={!!exporting}
             title="Komplettes Projekt als portable .capyz-Datei sichern (Backup / anderes Gerät)"
             className="py-3 rounded-xl bg-sky-700 hover:bg-sky-600 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
             <Archive size={18} /> Projekt sichern (ZIP)
@@ -3463,7 +3479,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
                     <td className={`py-2 text-center font-medium ${s.finalTotal !== undefined ? 'text-violet-400' : ''}`} title={s.finalTotal !== undefined ? 'Gesamtsumme manuell überschrieben' : undefined}>{total}/{maxPts}</td>
                     <td className="py-2 text-center font-bold text-amber-500">{grade}</td>
                     <td className="py-2 text-right">
-                      <button onClick={() => exportStudentPdf(s, i)} disabled={exporting} className={`p-1.5 rounded disabled:opacity-50 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}>
+                      <button onClick={async () => { const err = await exportStudentPdf(s, i); if (err) onToast?.('Export fehlgeschlagen: ' + err, 'error'); }} disabled={!!exporting} className={`p-1.5 rounded disabled:opacity-50 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}>
                         <Download size={16} />
                       </button>
                     </td>
