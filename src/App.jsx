@@ -177,13 +177,25 @@ const expandTasksForStudent = (tasks, student) => (tasks || []).flatMap(t =>
 // Unicodefähig: „Aimée" und „François" bleiben in Dateinamen erhalten.
 const sanitizeFileName = (name) => (name || '').replace(/[^\p{L}\p{N}_\- ]/gu, '').trim();
 
-const downloadBytes = (bytes, filename) => {
-  const blob = new Blob([bytes], { type: 'application/pdf' });
+const downloadBytes = (bytes, filename, type = 'application/pdf') => {
+  const blob = new Blob([bytes], { type });
   const link = document.createElement('a');
   link.download = filename;
   link.href = URL.createObjectURL(blob);
   link.click();
   setTimeout(() => { try { URL.revokeObjectURL(link.href); } catch {} }, 5000);
+};
+
+// Gleiche Namen innerhalb eines Exports durchnummerieren: „Anna.pdf“, „Anna (2).pdf“ …
+// (ohne Groß-/Kleinschreibung, wie unter Windows)
+const uniqueFileName = (name, used) => {
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  let candidate = name;
+  for (let n = 2; used.has(candidate.toLowerCase()); n++) candidate = `${base} (${n})${ext}`;
+  used.add(candidate.toLowerCase());
+  return candidate;
 };
 
 const canvasToBytes = (canvas, type = 'image/png', quality) =>
@@ -2969,8 +2981,9 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
     }
   };
 
-  // Einen Schüler als PDF exportieren; liefert null bei Erfolg, sonst die Fehlermeldung
-  const exportStudentPdf = async (student, index, srcDocShared) => {
+  // Einen Schüler als PDF exportieren; liefert null bei Erfolg, sonst die Fehlermeldung.
+  // save nimmt die fertige Datei entgegen: Download (Standard) oder Sammeln für die ZIP-Datei.
+  const exportStudentPdf = async (student, index, srcDocShared, save = downloadBytes) => {
     try {
       const srcDoc = rasterExport ? null
         : (srcDocShared !== undefined ? srcDocShared : await loadSourceDoc());
@@ -2978,7 +2991,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
       if (appendFeedbackSheet) await addRasterPage(outDoc, renderFeedbackSheet(student));
       if (appendModelPages) await appendModelPagesTo(outDoc);
       const bytes = await outDoc.save();
-      downloadBytes(bytes, `${sanitizeFileName(student.name) || `Schueler_${index + 1}`}.pdf`);
+      save(bytes, `${sanitizeFileName(student.name) || `Schueler_${index + 1}`}.pdf`);
       return null;
     } catch (e) {
       console.error('Export error:', e);
@@ -3029,29 +3042,40 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
     setExporting(null);
   };
 
+  // Alle Einzel-PDFs in EINER ZIP-Datei: ein Speichern-Fenster statt eines je Schüler
   const exportIndividualPdfs = async () => {
     setExporting('individual');
     setExportProgress(0);
+    const files = {};
+    const used = new Set();
+    const collect = (bytes, name) => { files[uniqueFileName(name, used)] = bytes; };
     let failed = 0;
     let firstError = null;
+    let fatal = null;
     try {
       const srcDoc = rasterExport ? null : await loadSourceDoc(); // Quelle nur EINMAL laden
       for (let i = 0; i < students.length; i++) {
         setExportProgress(Math.round((i / students.length) * 100));
-        const err = await exportStudentPdf(students[i], i, srcDoc);
+        const err = await exportStudentPdf(students[i], i, srcDoc, collect);
         if (err) { failed++; firstError = firstError || err; }
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 0)); // UI nicht blockieren
+      }
+      if (Object.keys(files).length) {
+        // PDFs sind schon komprimiert – nur einpacken (level 0), das geht schnell
+        downloadBytes(zipSync(files, { level: 0 }), `${sanitizeFileName(project.title) || 'Klassenarbeit'}_Einzel-PDFs.zip`, 'application/zip');
       }
       setExportProgress(100);
     } catch (e) {
       console.error('Export error:', e);
-      failed = students.length;
-      firstError = e?.message || String(e);
+      fatal = e?.message || String(e);
     }
     setExporting(null);
-    // Erfolg nur melden, wenn wirklich jede Datei entstanden ist
-    if (!failed) onToast?.(`${students.length} Einzel-PDFs exportiert!`, 'success');
-    else onToast?.(`${failed} von ${students.length} Einzel-PDFs fehlgeschlagen: ${firstError}`, 'error');
+    // Erfolg nur melden, wenn wirklich jede Datei in der ZIP-Datei steckt
+    const ok = students.length - failed;
+    if (fatal) onToast?.('Export fehlgeschlagen: ' + fatal, 'error');
+    else if (!ok) onToast?.(`Einzel-PDFs fehlgeschlagen: ${firstError}`, 'error');
+    else if (failed) onToast?.(`ZIP-Datei mit ${ok} von ${students.length} Einzel-PDFs gespeichert, ${failed} fehlgeschlagen: ${firstError}`, 'warning');
+    else onToast?.(`${students.length} Einzel-PDFs als ZIP-Datei exportiert!`, 'success');
   };
   
   // Download CSV
@@ -3436,7 +3460,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
           <button onClick={exportAllPdf} disabled={!!exporting} className="py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
             <Download size={18} /> {exporting === 'all' ? `${exportProgress}%` : 'Sammel-PDF'}
           </button>
-          <button onClick={exportIndividualPdfs} disabled={!!exporting} className="py-3 rounded-xl bg-green-600 hover:bg-green-500 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+          <button onClick={exportIndividualPdfs} disabled={!!exporting} title="Für jeden Schüler eine eigene PDF, zusammen in einer ZIP-Datei" className="py-3 rounded-xl bg-green-600 hover:bg-green-500 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
             <Users size={18} /> {exporting === 'individual' ? `${exportProgress}%` : 'Einzel-PDFs'}
           </button>
           <button onClick={() => setShowZipExport(true)} disabled={!!exporting}
