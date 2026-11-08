@@ -43,6 +43,7 @@
   "build": {
     "appId": "com.capynote.app",
     "productName": "Capy-note",
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },
