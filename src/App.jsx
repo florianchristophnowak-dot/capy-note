@@ -599,13 +599,20 @@ const getStampVariant = (mark) => {
   return 'custom';
 };
 
-const getAnnotationMarkSizePx = (a, regionHeightPx, fallback = 24) => {
-  const rel = a?.sizeRel;
-  if (Number.isFinite(rel) && rel > 0) return (rel / 100) * Math.max(1, regionHeightPx);
+// Stempel/Markierungen haben eine feste Größe auf der Seite (in PDF-Punkten), unabhängig davon,
+// wie groß der Aufgabenausschnitt ist bzw. wie stark er beim Korrigieren vergrößert wurde.
+// Der Größenregler (px) wird mit MARK_PT_PER_PX in Punkte umgerechnet (30 → 18 pt ≈ 6,4 mm).
+// Ältere Markierungen ohne sizePt werden über ihren Reglerwert (size) ebenso umgerechnet,
+// damit auch bereits gesetzte Haken einheitlich groß erscheinen.
+const MARK_PT_PER_PX = 0.6;
+const getMarkSizePt = (a, fallbackPx = 30) => {
+  const pt = a?.sizePt;
+  if (Number.isFinite(pt) && pt > 0) return pt;
   const px = a?.size;
-  if (Number.isFinite(px) && px > 0) return px;
-  return fallback;
+  return ((Number.isFinite(px) && px > 0) ? px : fallbackPx) * MARK_PT_PER_PX;
 };
+// pxPerPt: Pixel je PDF-Punkt der Zielfläche (Export: Renderfaktor, Ansicht: Einpassfaktor)
+const getAnnotationMarkSizePx = (a, pxPerPt) => getMarkSizePt(a) * pxPerPt;
 
 const pointToSegmentDistance = (px, py, x1, y1, x2, y2) => {
   const dx = x2 - x1;
@@ -2013,8 +2020,7 @@ const drawStudentOverlay = (ctx, canvas, student, pageOffset, scale, opts) => {
           if (a.type === 'mark') {
             const x = (task.region.x + a.x * task.region.width / 100) / 100 * canvas.width;
             const y = (task.region.y + a.y * task.region.height / 100) / 100 * canvas.height;
-            const regionH = (task.region.height / 100) * canvas.height;
-            const markSize = getAnnotationMarkSizePx(a, regionH, 24);
+            const markSize = getAnnotationMarkSizePx(a, scale);
             drawCanvasMark(ctx, { x, y, symbol: a.symbol, color: c, size: markSize, crossed: !!a.crossed, opacity: (a.opacity ?? 1), stampVariant: getStampVariant(a) });
           }
           if (a.type === 'text') {
@@ -2060,8 +2066,7 @@ const drawStudentOverlay = (ctx, canvas, student, pageOffset, scale, opts) => {
         if (a.type === 'mark') {
           const x = (task.region.x + a.x * task.region.width / 100) / 100 * canvas.width;
           const y = (task.region.y + a.y * task.region.height / 100) / 100 * canvas.height;
-          const regionH = (task.region.height / 100) * canvas.height;
-          const markSize = getAnnotationMarkSizePx(a, regionH, 24);
+          const markSize = getAnnotationMarkSizePx(a, scale);
           drawCanvasMark(ctx, { x, y, symbol: a.symbol, color: a.color, size: markSize, crossed: !!a.crossed, opacity: (a.opacity ?? 1), stampVariant: getStampVariant(a) });
         }
         if (a.type === 'text') {
@@ -2914,8 +2919,7 @@ function ResultsModal({ project, students, tasks, gradeTable, pdfDoc, pdfArrayBu
           if (a.type === 'mark') {
             const x = (task.region.x + a.x * task.region.width / 100) / 100 * canvas.width;
             const y = (task.region.y + a.y * task.region.height / 100) / 100 * canvas.height;
-            const regionH = (task.region.height / 100) * canvas.height;
-            const markSize = getAnnotationMarkSizePx(a, regionH, 24);
+            const markSize = getAnnotationMarkSizePx(a, scale);
             drawCanvasMark(ctx, { x, y, symbol: a.symbol, color: c, size: markSize, crossed: !!a.crossed, opacity: (a.opacity ?? 1), stampVariant: getStampVariant(a) });
           }
           if (a.type === 'text') {
@@ -3837,6 +3841,8 @@ function GradingCanvas({ pdfDoc, pageNumber, rotation = 0, scale, region, isCrop
   const activePointerIdRef = useRef(null);
 
   const [containerPx, setContainerPx] = useState({ w: 0, h: 0 });
+  // CSS-Pixel je PDF-Punkt der aktuellen Darstellung (für seitenbezogene Stempelgröße)
+  const [pxPerPt, setPxPerPt] = useState(0);
 
   // SVG uses a square viewBox (0..100 in x/y) that is stretched to the (usually non-square)
   // PDF canvas size. That non-uniform scaling distorts glyphs ("too wide" / "too skinny").
@@ -3962,6 +3968,7 @@ function GradingCanvas({ pdfDoc, pageNumber, rotation = 0, scale, region, isCrop
         canvas.style.width = `${cssW}px`;
         canvas.style.height = `${cssH}px`;
         canvas.getContext('2d').drawImage(off, 0, 0);
+        setPxPerPt(renderScale / dpr);
       } catch (e) {
         if (e?.name !== 'RenderingCancelledException') console.error(e);
       }
@@ -4018,13 +4025,18 @@ function GradingCanvas({ pdfDoc, pageNumber, rotation = 0, scale, region, isCrop
     return (px / regionHPx) * 100;
   }, [containerPx.h, isCropped, region]);
 
+  // Angezeigte Stempelgröße in CSS-Pixeln: feste Größe auf der Seite, mit der Ansicht skaliert
+  const markDisplayPx = useCallback((a) => (
+    pxPerPt > 0 ? getAnnotationMarkSizePx(a, pxPerPt) : (a?.size || markSize || 30)
+  ), [pxPerPt, markSize]);
+
   const findHitAnnotation = useCallback((p) => {
     if (!p) return null;
     const anns = (annotations || []).filter(a => (a?.role || 'first') === activeRole);
     for (let idx = anns.length - 1; idx >= 0; idx -= 1) {
       const a = anns[idx];
       if (a?.type === 'mark') {
-        const localSize = (Number.isFinite(a?.sizeRel) && a.sizeRel > 0) ? a.sizeRel : pxToLocalRegionPercent(Math.max(18, a?.size || markSize || 30));
+        const localSize = pxToLocalRegionPercent(Math.max(18, markDisplayPx(a)));
         const hitRadius = Math.max(localSize * 0.45, pxToLocalRegionPercent(10));
         if (Math.hypot((a.x || 0) - p.x, (a.y || 0) - p.y) <= hitRadius) return a;
         continue;
@@ -4065,7 +4077,7 @@ function GradingCanvas({ pdfDoc, pageNumber, rotation = 0, scale, region, isCrop
       }
     }
     return null;
-  }, [annotations, activeRole, markSize, pxToLocalRegionPercent]);
+  }, [annotations, activeRole, markDisplayPx, pxToLocalRegionPercent]);
 
   const eraseAtPoint = useCallback((p) => {
     const hit = findHitAnnotation(p);
@@ -4098,8 +4110,11 @@ function GradingCanvas({ pdfDoc, pageNumber, rotation = 0, scale, region, isCrop
     }
     else if (activeTool === 'mark' && selectedMark) {
       const p = local || raw;
-      const sizeRel = pxToLocalRegionPercent(markSize || 30);
-      onAddAnnotation?.({ type: 'mark', x: p.x, y: p.y, symbol: selectedMark.symbol, color: selectedMark.color, role: activeRole, style: selectedMark.style || 'badge', crossed: !!selectedMark.crossed, stampVariant: getStampVariant(selectedMark), size: markSize || 30, sizeRel, opacity: 1 });
+      const size = markSize || 30;
+      const sizePt = size * MARK_PT_PER_PX;
+      // sizeRel bleibt für ältere App-Versionen erhalten, maßgeblich ist sizePt
+      const sizeRel = pxToLocalRegionPercent(pxPerPt > 0 ? sizePt * pxPerPt : size);
+      onAddAnnotation?.({ type: 'mark', x: p.x, y: p.y, symbol: selectedMark.symbol, color: selectedMark.color, role: activeRole, style: selectedMark.style || 'badge', crossed: !!selectedMark.crossed, stampVariant: getStampVariant(selectedMark), size, sizePt, sizeRel, opacity: 1 });
     }
     else if (activeTool === 'text') {
       setTextPos(raw);
@@ -4108,7 +4123,7 @@ function GradingCanvas({ pdfDoc, pageNumber, rotation = 0, scale, region, isCrop
     else if (activeTool === 'eraser') {
       eraseAtPoint(local || raw);
     }
-  }, [activeTool, penColor, markSize, lineWidth, underlineStyle, underlineDouble, underlineHook, selectedMark, onAddAnnotation, getCoords, toLocalCoords, isCropped, region, activeRole, pxToLocalRegionPercent, eraseAtPoint]);
+  }, [activeTool, penColor, markSize, pxPerPt, lineWidth, underlineStyle, underlineDouble, underlineHook, selectedMark, onAddAnnotation, getCoords, toLocalCoords, isCropped, region, activeRole, pxToLocalRegionPercent, eraseAtPoint]);
 
   const handleMove = useCallback((e) => {
     if (e.pointerId != null && activePointerIdRef.current != null && e.pointerId !== activePointerIdRef.current) return;
@@ -4386,8 +4401,8 @@ function GradingCanvas({ pdfDoc, pageNumber, rotation = 0, scale, region, isCrop
         {/* Marks */}
         {annotations?.filter(a => a.type === 'mark').map((a, i) => {
           const p = toDisplayCoords({ x: a.x, y: a.y }) || { x: a.x, y: a.y };
-          const sizePx = Math.max(12, a.size || 30);
           const isStamp = a.style === 'stamp';
+          const sizePx = isStamp ? Math.max(6, markDisplayPx(a)) : Math.max(12, a.size || 30);
           return (
             <div key={`m${i}`} className="absolute pointer-events-none" style={{ left: `${p.x}%`, top: `${p.y}%`, transform: 'translate(-50%, -50%)' }}>
               {isStamp ? (
